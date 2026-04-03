@@ -145,11 +145,14 @@ func TestTranspileConnectDispatch(t *testing.T) {
 	connects := []ast.Connect{
 		{ScriptName: "Enemy", SignalName: "died", Params: []string{"pos"}, Body: "self.score += 100;"},
 	}
-	out := TranspileConnectDispatch(connects)
+	index := SignalIndex{
+		signalIndexKey("Enemy", "died"): []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
+	}
+	out := TranspileConnectDispatch(connects, index)
 	if !strings.Contains(out, "if let Some(msg) = message.downcast_ref::<EnemyDiedMsg>()") {
 		t.Errorf("missing if-let downcast: %s", out)
 	}
-	if !strings.Contains(out, "let pos = &msg.pos;") {
+	if !strings.Contains(out, "let pos = &msg.position;") {
 		t.Errorf("missing param binding: %s", out)
 	}
 	if !strings.Contains(out, "self.score += 100;") {
@@ -162,12 +165,22 @@ func TestTranspileConnectDispatchMultiple(t *testing.T) {
 		{ScriptName: "Enemy", SignalName: "died", Params: []string{"pos"}, Body: "self.score += 100;"},
 		{ScriptName: "Player", SignalName: "health_changed", Params: []string{"hp"}, Body: "update_ui(hp);"},
 	}
-	out := TranspileConnectDispatch(connects)
+	index := SignalIndex{
+		signalIndexKey("Enemy", "died"):            []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
+		signalIndexKey("Player", "health_changed"): []ast.Param{{Name: "health", TypeExpr: "f32"}},
+	}
+	out := TranspileConnectDispatch(connects, index)
 	if !strings.Contains(out, "downcast_ref::<EnemyDiedMsg>()") {
 		t.Errorf("missing EnemyDiedMsg dispatch: %s", out)
 	}
 	if !strings.Contains(out, "downcast_ref::<PlayerHealthChangedMsg>()") {
 		t.Errorf("missing PlayerHealthChangedMsg dispatch: %s", out)
+	}
+	if !strings.Contains(out, "let pos = &msg.position;") {
+		t.Errorf("missing positional bind for Enemy::died: %s", out)
+	}
+	if !strings.Contains(out, "let hp = &msg.health;") {
+		t.Errorf("missing positional bind for Player::health_changed: %s", out)
 	}
 	if !strings.Contains(out, "self.score += 100;") {
 		t.Errorf("missing first body: %s", out)
@@ -178,7 +191,7 @@ func TestTranspileConnectDispatchMultiple(t *testing.T) {
 }
 
 func TestTranspileConnectDispatchEmpty(t *testing.T) {
-	out := TranspileConnectDispatch(nil)
+	out := TranspileConnectDispatch(nil, nil)
 	if out != "" {
 		t.Errorf("expected empty output for no connects, got: %q", out)
 	}
@@ -193,12 +206,28 @@ func TestTranspileConnectDispatchMultipleParams(t *testing.T) {
 			Body:       "log::info!(\"hit for {}\", amount);",
 		},
 	}
-	out := TranspileConnectDispatch(connects)
+	index := SignalIndex{
+		signalIndexKey("Enemy", "damaged"): []ast.Param{
+			{Name: "amount", TypeExpr: "f32"},
+			{Name: "source", TypeExpr: "Handle<Node>"},
+		},
+	}
+	out := TranspileConnectDispatch(connects, index)
 	if !strings.Contains(out, "let amount = &msg.amount;") {
 		t.Errorf("missing amount binding: %s", out)
 	}
 	if !strings.Contains(out, "let source = &msg.source;") {
 		t.Errorf("missing source binding: %s", out)
+	}
+}
+
+func TestTranspileConnectDispatchFallsBackToBindingNames(t *testing.T) {
+	connects := []ast.Connect{
+		{ScriptName: "Enemy", SignalName: "died", Params: []string{"pos"}, Body: "self.score += 100;"},
+	}
+	out := TranspileConnectDispatch(connects, nil)
+	if !strings.Contains(out, "let pos = &msg.pos;") {
+		t.Errorf("expected fallback bind to use local name, got: %s", out)
 	}
 }
 

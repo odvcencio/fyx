@@ -44,26 +44,27 @@ func signalMsgName(scriptName, signalName string) string {
 //	    pub position: Vector3,
 //	}
 func TranspileSignalStructs(scriptName string, signals []ast.Signal) string {
-	if len(signals) == 0 {
-		return ""
-	}
-
 	e := NewEmitter()
+	EmitSignalStructs(e, scriptName, signals)
+	return e.String()
+}
+
+// EmitSignalStructs writes signal message struct declarations into an emitter.
+func EmitSignalStructs(e *RustEmitter, scriptName string, signals []ast.Signal) {
 	for i, sig := range signals {
 		if i > 0 {
 			e.Blank()
 		}
 		name := signalMsgName(scriptName, sig.Name)
-		e.Line("#[derive(Debug, Clone)]")
-		e.Linef("pub struct %s {", name)
+		e.LineWithSource("#[derive(Debug, Clone)]", sig.Line)
+		e.LineWithSource(fmt.Sprintf("pub struct %s {", name), sig.Line)
 		e.Indent()
 		for _, p := range sig.Params {
-			e.Linef("pub %s: %s,", p.Name, p.TypeExpr)
+			e.LineWithSource(fmt.Sprintf("pub %s: %s,", p.Name, p.TypeExpr), sig.Line)
 		}
 		e.Dedent()
-		e.Line("}")
+		e.LineWithSource("}", sig.Line)
 	}
-	return e.String()
 }
 
 // TranspileConnectSubscriptions generates subscribe_to calls for on_start from connect blocks.
@@ -104,7 +105,7 @@ func TranspileConnectSubscriptions(connects []ast.Connect) string {
 //	}
 //
 // Multiple connect blocks produce chained if-let blocks.
-func TranspileConnectDispatch(connects []ast.Connect) string {
+func TranspileConnectDispatch(connects []ast.Connect, signalIndex SignalIndex) string {
 	if len(connects) == 0 {
 		return ""
 	}
@@ -118,14 +119,12 @@ func TranspileConnectDispatch(connects []ast.Connect) string {
 		e.Linef("if let Some(msg) = message.downcast_ref::<%s>() {", name)
 		e.Indent()
 
-		// Bind each parameter from the connect block to the corresponding message field.
-		// We look up the signal's param names to generate the correct field access.
-		// Since we only have the connect's binding names and not the signal's param names,
-		// the binding names ARE the field references (positional matching would require
-		// the signal definition). For now, bind by position using the connect's param names
-		// as both the local variable name and the msg field name.
-		for _, paramName := range c.Params {
-			e.Linef("let %s = &msg.%s;", paramName, paramName)
+		for i, paramName := range c.Params {
+			fieldName := paramName
+			if params := signalParamsFor(signalIndex, c.ScriptName, c.SignalName); i < len(params) && params[i].Name != "" {
+				fieldName = params[i].Name
+			}
+			e.Linef("let %s = &msg.%s;", paramName, fieldName)
 		}
 
 		body := strings.TrimSpace(c.Body)

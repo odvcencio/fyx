@@ -73,7 +73,7 @@ func TestTranspileSystemEntityParam(t *testing.T) {
 		},
 	}
 	out := TranspileSystem(s)
-	if !strings.Contains(out, "for (e, tag) in") {
+	if !strings.Contains(out, "for (e, (tag,)) in") {
 		t.Errorf("entity param should be bound as entity variable: %s", out)
 	}
 	// Entity should not appear in the query type tuple

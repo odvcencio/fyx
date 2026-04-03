@@ -8,7 +8,8 @@ pub struct EnemyDamagedMsg {
     pub amount: f32,
 }
 
-#[derive(Visit, Reflect, Default, Debug, Clone, TypeUuidProvider, ComponentProvider)]
+
+#[derive(Visit, Reflect, Debug, Clone, TypeUuidProvider, ComponentProvider)]
 #[type_uuid(id = "0021d5fe-20a0-8754-dd96-5d947e483074")]
 #[visit(optional)]
 pub struct Enemy {
@@ -18,10 +19,10 @@ pub struct Enemy {
 
 impl Default for Enemy {
     fn default() -> Self {
-        Self {
+        let value = Self {
             health: 100.0,
-            ..Default::default()
-        }
+        };
+        value
     }
 }
 
@@ -33,7 +34,8 @@ impl ScriptTrait for Enemy {
     }
 }
 
-#[derive(Visit, Reflect, Default, Debug, Clone, TypeUuidProvider, ComponentProvider)]
+
+#[derive(Visit, Reflect, Debug, Clone, TypeUuidProvider, ComponentProvider)]
 #[type_uuid(id = "794caf2c-d47b-3003-b20f-28cb864812fb")]
 #[visit(optional)]
 pub struct ScoreTracker {
@@ -43,10 +45,10 @@ pub struct ScoreTracker {
 
 impl Default for ScoreTracker {
     fn default() -> Self {
-        Self {
+        let value = Self {
             score: 0,
-            ..Default::default()
-        }
+        };
+        value
     }
 }
 
@@ -57,11 +59,12 @@ impl ScriptTrait for ScoreTracker {
 
     fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) {
         if let Some(msg) = message.downcast_ref::<EnemyDiedMsg>() {
-            let pos = &msg.pos;
+            let pos = &msg.position;
             self.score += 100;
         }
     }
 }
+
 
 pub fn register_scripts(ctx: &mut PluginRegistrationContext) {
     ctx.serialization_context.script_constructors.add::<Enemy>("Enemy");

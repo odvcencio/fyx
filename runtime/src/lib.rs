@@ -1,4 +1,4 @@
-//! fyroxscript-runtime — Minimal ECS runtime for FyroxScript transpiled code.
+//! fyx-runtime — Minimal ECS runtime for Fyx transpiled code.
 //!
 //! Provides sparse-set ECS storage with typed component access.
 //! No external dependencies.

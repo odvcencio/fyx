@@ -147,3 +147,26 @@ fn helper() -> i32 {
 		t.Errorf("expected 2 rust items, got %d", len(file.RustItems))
 	}
 }
+
+func TestBuildImports(t *testing.T) {
+	l := lang(t)
+	source := []byte(`import combat.weapon
+import ui::hud
+
+script Player {}
+`)
+
+	file, err := BuildAST(l, source)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(file.Imports) != 2 {
+		t.Fatalf("expected 2 imports, got %d", len(file.Imports))
+	}
+	if file.Imports[0].Path != "combat.weapon" {
+		t.Fatalf("unexpected first import: %+v", file.Imports[0])
+	}
+	if file.Imports[1].Path != "ui.hud" {
+		t.Fatalf("unexpected second import: %+v", file.Imports[1])
+	}
+}

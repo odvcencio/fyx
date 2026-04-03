@@ -1,0 +1,8 @@
+/generated/
+/fyxc
+/runtime/target/
+
+*.fyxmap.json
+*.rs.bk
+
+.DS_Store

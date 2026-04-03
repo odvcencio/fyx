@@ -20,6 +20,8 @@ func BuildAST(lang *gotreesitter.Language, source []byte) (*File, error) {
 	for i := 0; i < root.NamedChildCount(); i++ {
 		child := root.NamedChild(i)
 		switch child.Type(lang) {
+		case "import_statement":
+			file.Imports = append(file.Imports, buildImport(child, source, lang))
 		case "script_declaration":
 			file.Scripts = append(file.Scripts, buildScript(child, source, lang))
 		case "component_declaration":
@@ -28,11 +30,19 @@ func BuildAST(lang *gotreesitter.Language, source []byte) (*File, error) {
 			file.Systems = append(file.Systems, buildSystem(child, source, lang))
 		case "rust_item":
 			file.RustItems = append(file.RustItems, RustItem{
+				Line:   sourceLine(child),
 				Source: nodeText(child, source),
 			})
 		}
 	}
 	return file, nil
+}
+
+func sourceLine(n *gotreesitter.Node) int {
+	if n == nil {
+		return 0
+	}
+	return int(n.StartPoint().Row) + 1
 }
 
 // nodeText extracts the source text covered by a node.
@@ -43,9 +53,17 @@ func nodeText(n *gotreesitter.Node, source []byte) string {
 	return n.Text(source)
 }
 
+func buildImport(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Import {
+	return Import{
+		Path: strings.ReplaceAll(nodeText(n.ChildByFieldName("path", lang), source), "::", "."),
+		Line: sourceLine(n),
+	}
+}
+
 // buildScript walks a script_declaration CST node and produces a Script.
 func buildScript(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Script {
 	s := Script{
+		Line: sourceLine(n),
 		Name: nodeText(n.ChildByFieldName("name", lang), source),
 	}
 	for i := 0; i < n.NamedChildCount(); i++ {
@@ -82,6 +100,7 @@ func buildScript(n *gotreesitter.Node, source []byte, lang *gotreesitter.Languag
 func buildField(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language, mod FieldModifier) Field {
 	f := Field{
 		Modifier: mod,
+		Line:     sourceLine(n),
 		Name:     nodeText(n.ChildByFieldName("name", lang), source),
 		TypeExpr: nodeText(n.ChildByFieldName("type", lang), source),
 	}
@@ -96,6 +115,7 @@ func buildField(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language
 func buildDerivedField(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Field {
 	f := Field{
 		Modifier: FieldDerived,
+		Line:     sourceLine(n),
 		Name:     nodeText(n.ChildByFieldName("name", lang), source),
 		TypeExpr: nodeText(n.ChildByFieldName("type", lang), source),
 	}
@@ -107,7 +127,9 @@ func buildDerivedField(n *gotreesitter.Node, source []byte, lang *gotreesitter.L
 
 // buildHandler walks a lifecycle_handler CST node.
 func buildHandler(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Handler {
-	h := Handler{}
+	h := Handler{
+		Line: sourceLine(n),
+	}
 
 	// Resolve handler kind from the "kind" field node text.
 	kindNode := n.ChildByFieldName("kind", lang)
@@ -134,6 +156,7 @@ func buildHandler(n *gotreesitter.Node, source []byte, lang *gotreesitter.Langua
 
 	// Extract body text (content between braces).
 	if bodyNode := n.ChildByFieldName("body", lang); bodyNode != nil {
+		h.BodyLine = sourceLine(bodyNode) + 1
 		h.Body = extractBodyContent(bodyNode, source)
 	}
 
@@ -182,6 +205,7 @@ func buildParam(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language
 // buildSignal walks a signal_declaration CST node.
 func buildSignal(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Signal {
 	sig := Signal{
+		Line: sourceLine(n),
 		Name: nodeText(n.ChildByFieldName("name", lang), source),
 	}
 	params := collectHandlerParams(n, source, lang)
@@ -191,7 +215,9 @@ func buildSignal(n *gotreesitter.Node, source []byte, lang *gotreesitter.Languag
 
 // buildConnect walks a connect_block CST node.
 func buildConnect(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Connect {
-	c := Connect{}
+	c := Connect{
+		Line: sourceLine(n),
+	}
 
 	// Extract script::signal path from the "signal" field.
 	sigPath := n.ChildByFieldName("signal", lang)
@@ -208,6 +234,7 @@ func buildConnect(n *gotreesitter.Node, source []byte, lang *gotreesitter.Langua
 
 	// Extract body.
 	if bodyNode := n.ChildByFieldName("body", lang); bodyNode != nil {
+		c.BodyLine = sourceLine(bodyNode) + 1
 		c.Body = extractBodyContent(bodyNode, source)
 	}
 
@@ -216,7 +243,9 @@ func buildConnect(n *gotreesitter.Node, source []byte, lang *gotreesitter.Langua
 
 // buildWatch walks a watch_block CST node.
 func buildWatch(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Watch {
-	w := Watch{}
+	w := Watch{
+		Line: sourceLine(n),
+	}
 
 	// The target field contains a watch_target node: "self" "." identifier
 	if target := n.ChildByFieldName("target", lang); target != nil {
@@ -224,6 +253,7 @@ func buildWatch(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language
 	}
 
 	if bodyNode := n.ChildByFieldName("body", lang); bodyNode != nil {
+		w.BodyLine = sourceLine(bodyNode) + 1
 		w.Body = extractBodyContent(bodyNode, source)
 	}
 
@@ -233,6 +263,7 @@ func buildWatch(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language
 // buildComponent walks a component_declaration CST node.
 func buildComponent(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Component {
 	comp := Component{
+		Line: sourceLine(n),
 		Name: nodeText(n.ChildByFieldName("name", lang), source),
 	}
 	for i := 0; i < n.NamedChildCount(); i++ {
@@ -240,6 +271,7 @@ func buildComponent(n *gotreesitter.Node, source []byte, lang *gotreesitter.Lang
 		if child.Type(lang) == "component_field" {
 			comp.Fields = append(comp.Fields, Field{
 				Modifier: FieldBare,
+				Line:     sourceLine(child),
 				Name:     nodeText(child.ChildByFieldName("name", lang), source),
 				TypeExpr: nodeText(child.ChildByFieldName("type", lang), source),
 			})
@@ -251,6 +283,7 @@ func buildComponent(n *gotreesitter.Node, source []byte, lang *gotreesitter.Lang
 // buildSystem walks a system_declaration CST node.
 func buildSystem(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) System {
 	sys := System{
+		Line: sourceLine(n),
 		Name: nodeText(n.ChildByFieldName("name", lang), source),
 	}
 
@@ -272,6 +305,7 @@ func buildSystem(n *gotreesitter.Node, source []byte, lang *gotreesitter.Languag
 
 	// Extract queries and body from the system_body node.
 	if bodyNode := n.ChildByFieldName("body", lang); bodyNode != nil {
+		sys.BodyLine = sourceLine(bodyNode) + 1
 		sys.Queries = buildSystemQueries(bodyNode, source, lang)
 		sys.Body = extractSystemBodyNonQuery(bodyNode, source, lang)
 	}
@@ -293,7 +327,9 @@ func buildSystemQueries(bodyNode *gotreesitter.Node, source []byte, lang *gotree
 
 // buildQuery walks a query_block CST node.
 func buildQuery(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Query {
-	q := Query{}
+	q := Query{
+		Line: sourceLine(n),
+	}
 
 	// Extract query parameters.
 	for i := 0; i < n.NamedChildCount(); i++ {
@@ -313,6 +349,7 @@ func buildQuery(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language
 
 	// Extract body.
 	if bodyNode := n.ChildByFieldName("body", lang); bodyNode != nil {
+		q.BodyLine = sourceLine(bodyNode) + 1
 		q.Body = extractBodyContent(bodyNode, source)
 	}
 

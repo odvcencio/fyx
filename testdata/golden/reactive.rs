@@ -1,4 +1,4 @@
-#[derive(Visit, Reflect, Default, Debug, Clone, TypeUuidProvider, ComponentProvider)]
+#[derive(Visit, Reflect, Debug, Clone, TypeUuidProvider, ComponentProvider)]
 #[type_uuid(id = "c40c747e-e79e-90e1-6e46-d58fa8ba3a28")]
 #[visit(optional)]
 pub struct HUD {
@@ -17,13 +17,16 @@ pub struct HUD {
 
 impl Default for HUD {
     fn default() -> Self {
-        Self {
+        let mut value = Self {
             health: 100.0,
-            is_critical: self.health < 20.0,
-            _health_prev: 100.0,
-            _is_critical_prev: self.health < 20.0,
-            ..Default::default()
-        }
+            is_critical: Default::default(),
+            _health_prev: Default::default(),
+            _is_critical_prev: Default::default(),
+        };
+        value._health_prev = value.health.clone();
+        value.is_critical = value.health < 20.0;
+        value._is_critical_prev = value.is_critical.clone();
+        value
     }
 }
 
@@ -39,6 +42,7 @@ impl ScriptTrait for HUD {
         self._health_prev = self.health.clone();
     }
 }
+
 
 pub fn register_scripts(ctx: &mut PluginRegistrationContext) {
     ctx.serialization_context.script_constructors.add::<HUD>("HUD");

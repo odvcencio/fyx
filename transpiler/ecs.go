@@ -2,24 +2,32 @@ package transpiler
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/odvcencio/fyrox-lang/ast"
 )
 
+var despawnCallRe = regexp.MustCompile(`\bdespawn\s*\(`)
+
 // TranspileComponent generates a Rust struct from an AST Component.
 // Component fields are always public and the struct derives Clone.
 func TranspileComponent(c ast.Component) string {
 	e := NewEmitter()
-	e.Line("#[derive(Clone)]")
-	e.Linef("pub struct %s {", c.Name)
+	EmitComponent(e, c)
+	return e.String()
+}
+
+// EmitComponent writes a component struct into an emitter.
+func EmitComponent(e *RustEmitter, c ast.Component) {
+	e.LineWithSource("#[derive(Clone)]", c.Line)
+	e.LineWithSource(fmt.Sprintf("pub struct %s {", c.Name), c.Line)
 	e.Indent()
 	for _, f := range c.Fields {
-		e.Linef("pub %s: %s,", f.Name, f.TypeExpr)
+		e.LineWithSource(fmt.Sprintf("pub %s: %s,", f.Name, f.TypeExpr), f.Line)
 	}
 	e.Dedent()
-	e.Line("}")
-	return e.String()
+	e.LineWithSource("}", c.Line)
 }
 
 // TranspileSystem generates a Rust function from an AST System.
@@ -27,50 +35,61 @@ func TranspileComponent(c ast.Component) string {
 // becomes a for loop over world.query_mut.
 func TranspileSystem(s ast.System) string {
 	e := NewEmitter()
-	e.Linef("pub fn system_%s(world: &mut EcsWorld, ctx: &PluginContext) {", s.Name)
+	EmitSystem(e, s)
+	return e.String()
+}
+
+// EmitSystem writes a system function into an emitter.
+func EmitSystem(e *RustEmitter, s ast.System) {
+	e.LineWithSource(fmt.Sprintf("pub fn system_%s(world: &mut EcsWorld, ctx: &PluginContext) {", s.Name), s.Line)
 	e.Indent()
 
-	// Emit injected parameter bindings.
 	for _, p := range s.Params {
 		src := injectedParamSource(p)
 		if p.TypeExpr != "" {
-			e.Linef("let %s: %s = %s;", p.Name, p.TypeExpr, src)
+			e.LineWithSource(fmt.Sprintf("let %s: %s = %s;", p.Name, p.TypeExpr, src), s.Line)
 		} else {
-			e.Linef("let %s = %s;", p.Name, src)
+			e.LineWithSource(fmt.Sprintf("let %s = %s;", p.Name, src), s.Line)
 		}
 	}
 
-	// Emit each query block as a for loop.
 	for _, q := range s.Queries {
 		emitQueryLoop(e, q)
 	}
 
-	// Emit any non-query body code.
-	body := strings.TrimSpace(s.Body)
+	body := strings.TrimSpace(rewriteSystemBody(s.Body))
 	if body != "" {
 		lines := strings.Split(body, "\n")
-		for _, line := range lines {
-			e.Line(strings.TrimRight(line, " \t"))
+		for i, line := range lines {
+			e.LineWithSource(strings.TrimRight(line, " \t"), s.BodyLine+i)
 		}
 	}
 
 	e.Dedent()
-	e.Line("}")
-	return e.String()
+	e.LineWithSource("}", s.Line)
 }
 
 // TranspileSystemRunner generates the run_ecs_systems function that calls
 // each system in declaration order.
 func TranspileSystemRunner(systems []ast.System) string {
 	e := NewEmitter()
-	e.Line("pub fn run_ecs_systems(world: &mut EcsWorld, ctx: &PluginContext) {")
+	EmitSystemRunner(e, systems)
+	return e.String()
+}
+
+// EmitSystemRunner writes the ECS runner function into an emitter.
+func EmitSystemRunner(e *RustEmitter, systems []ast.System) {
+	line := 1
+	if len(systems) > 0 && systems[0].Line != 0 {
+		line = systems[0].Line
+	}
+	e.LineWithSource("pub fn run_ecs_systems(world: &mut EcsWorld, ctx: &PluginContext) {", line)
 	e.Indent()
 	for _, s := range systems {
-		e.Linef("system_%s(world, ctx);", s.Name)
+		e.LineWithSource(fmt.Sprintf("system_%s(world, ctx);", s.Name), s.Line)
 	}
 	e.Dedent()
-	e.Line("}")
-	return e.String()
+	e.LineWithSource("}", line)
 }
 
 // TranspileECS generates all ECS Rust code: component structs, system functions,
@@ -132,20 +151,24 @@ func emitQueryLoop(e *RustEmitter, q ast.Query) {
 
 	// Single-element tuples don't need parens in the destructure but do in the type.
 	if len(queryNames) == 1 {
-		e.Linef("for (%s, %s) in world.query_mut::<(%s,)>() {", entityVar, nameTuple, typeTuple)
+		e.LineWithSource(fmt.Sprintf("for (%s, (%s,)) in world.query_mut::<(%s,)>() {", entityVar, nameTuple, typeTuple), q.Line)
 	} else {
-		e.Linef("for (%s, (%s)) in world.query_mut::<(%s)>() {", entityVar, nameTuple, typeTuple)
+		e.LineWithSource(fmt.Sprintf("for (%s, (%s)) in world.query_mut::<(%s)>() {", entityVar, nameTuple, typeTuple), q.Line)
 	}
 	e.Indent()
 
-	body := strings.TrimSpace(q.Body)
-	if body != "" {
-		lines := strings.Split(body, "\n")
-		for _, line := range lines {
-			e.Line(strings.TrimRight(line, " \t"))
+		body := strings.TrimSpace(rewriteSystemBody(q.Body))
+		if body != "" {
+			lines := strings.Split(body, "\n")
+			for i, line := range lines {
+				e.LineWithSource(strings.TrimRight(line, " \t"), q.BodyLine+i)
+			}
 		}
-	}
 
 	e.Dedent()
-	e.Line("}")
+	e.LineWithSource("}", q.Line)
+}
+
+func rewriteSystemBody(body string) string {
+	return despawnCallRe.ReplaceAllString(body, "world.despawn(")
 }

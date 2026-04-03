@@ -4,41 +4,21 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-
-	"github.com/odvcencio/fyrox-lang/ast"
-	"github.com/odvcencio/fyrox-lang/grammar"
-	"github.com/odvcencio/fyrox-lang/transpiler"
-	gotreesitter "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammargen"
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "build" {
-		fmt.Fprintln(os.Stderr, "Usage: fyxc build [dir] [--check] [--out <dir>]")
+	cmd, flagArgs, posArgs := parseArgs(os.Args[1:])
+	if cmd == "" {
+		usage()
 		os.Exit(1)
 	}
 
-	// Separate flags from positional args so flags can appear in any position.
-	buildArgs := os.Args[2:]
-	var flagArgs, posArgs []string
-	for i := 0; i < len(buildArgs); i++ {
-		if buildArgs[i] == "--check" {
-			flagArgs = append(flagArgs, buildArgs[i])
-		} else if buildArgs[i] == "--out" && i+1 < len(buildArgs) {
-			flagArgs = append(flagArgs, buildArgs[i], buildArgs[i+1])
-			i++
-		} else if strings.HasPrefix(buildArgs[i], "--out=") {
-			flagArgs = append(flagArgs, buildArgs[i])
-		} else {
-			posArgs = append(posArgs, buildArgs[i])
-		}
-	}
-
-	fs := flag.NewFlagSet("build", flag.ExitOnError)
-	check := fs.Bool("check", false, "Parse and validate only, no output")
+	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
+	checkOnly := fs.Bool("check", cmd == "check", "Parse/transpile validation only")
 	outDir := fs.String("out", "generated", "Output directory")
+	cargoCheck := fs.Bool("cargo-check", false, "Validate generated Rust with cargo check")
+	writeSourceMap := fs.Bool("emit-source-map", true, "Write .fyxmap.json sidecars when output files are written")
 	fs.Parse(flagArgs)
 
 	inputDir := "."
@@ -46,123 +26,76 @@ func main() {
 		inputDir = posArgs[0]
 	}
 
-	// Collect .fyx files.
-	var fyxFiles []string
-	err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && strings.HasSuffix(path, ".fyx") {
-			fyxFiles = append(fyxFiles, path)
-		}
-		return nil
-	})
+	result, err := compileProject(inputDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error walking directory %s: %v\n", inputDir, err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	if len(fyxFiles) == 0 {
-		fmt.Fprintf(os.Stderr, "No .fyx files found in %s\n", inputDir)
-		os.Exit(1)
-	}
+	printSummary(result, *outDir)
 
-	// Generate the language once.
-	g := grammar.FyroxScriptGrammar()
-	lang, err := grammargen.GenerateLanguage(g)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error generating language: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Process each file.
-	type fileResult struct {
-		basename   string
-		rustOutput string
-		scripts    int
-		components int
-		systems    int
-	}
-
-	var results []fileResult
-	var totalScripts, totalComponents, totalSystems int
-
-	for _, fpath := range fyxFiles {
-		source, err := os.ReadFile(fpath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", fpath, err)
+	if !*checkOnly {
+		if err := writeOutputTree(*outDir, result.Files, *writeSourceMap); err != nil {
+			fmt.Fprintf(os.Stderr, "write output: %v\n", err)
 			os.Exit(1)
 		}
-
-		file, err := buildAST(lang, source)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", fpath, err)
-			os.Exit(1)
-		}
-
-		basename := strings.TrimSuffix(filepath.Base(fpath), ".fyx")
-		nScripts := len(file.Scripts)
-		nComponents := len(file.Components)
-		nSystems := len(file.Systems)
-
-		totalScripts += nScripts
-		totalComponents += nComponents
-		totalSystems += nSystems
-
-		rustOutput := transpiler.TranspileFile(*file)
-
-		results = append(results, fileResult{
-			basename:   basename,
-			rustOutput: rustOutput,
-			scripts:    nScripts,
-			components: nComponents,
-			systems:    nSystems,
-		})
-
-		rsPath := filepath.Join(*outDir, basename+".rs")
-		fmt.Printf("  Transpiled %s.fyx -> %s (%d scripts, %d components, %d systems)\n",
-			basename, rsPath, nScripts, nComponents, nSystems)
 	}
 
-	if *check {
+	if *cargoCheck {
+		diagnostics, err := validateGeneratedFiles(result.Files)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cargo check failed: %v\n", err)
+			os.Exit(1)
+		}
+		if len(diagnostics) > 0 {
+			for _, diag := range diagnostics {
+				fmt.Fprintf(os.Stderr, "%s:%d:%d: %s\n", diag.SourcePath, diag.SourceLine, diag.Column, diag.Message)
+			}
+			os.Exit(1)
+		}
+		fmt.Println("  cargo check passed")
+	}
+
+	if *checkOnly {
 		fmt.Printf("\n  Check passed: %d files, %d scripts, %d components, %d systems\n",
-			len(results), totalScripts, totalComponents, totalSystems)
+			len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems)
 		return
 	}
 
-	// Create output directory.
-	if err := os.MkdirAll(*outDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating output directory %s: %v\n", *outDir, err)
-		os.Exit(1)
+	fmt.Printf("\n  Summary: %d files, %d scripts, %d components, %d systems\n",
+		len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems)
+}
+
+func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) {
+	if len(args) == 0 {
+		return "", nil, nil
 	}
 
-	// Write .rs files.
-	for _, r := range results {
-		outPath := filepath.Join(*outDir, r.basename+".rs")
-		if err := os.WriteFile(outPath, []byte(r.rustOutput), 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", outPath, err)
-			os.Exit(1)
+	cmd = args[0]
+	if cmd != "build" && cmd != "check" {
+		return "", nil, nil
+	}
+
+	raw := args[1:]
+	for i := 0; i < len(raw); i++ {
+		arg := raw[i]
+		switch {
+		case arg == "--check" || arg == "--cargo-check" || arg == "--emit-source-map":
+			flagArgs = append(flagArgs, arg)
+		case arg == "--out" && i+1 < len(raw):
+			flagArgs = append(flagArgs, arg, raw[i+1])
+			i++
+		case strings.HasPrefix(arg, "--out="):
+			flagArgs = append(flagArgs, arg)
+		default:
+			posArgs = append(posArgs, arg)
 		}
 	}
 
-	// Generate mod.rs.
-	var modLines []string
-	for _, r := range results {
-		modLines = append(modLines, fmt.Sprintf("pub mod %s;", r.basename))
-	}
-	modContent := strings.Join(modLines, "\n") + "\n"
-	modPath := filepath.Join(*outDir, "mod.rs")
-	if err := os.WriteFile(modPath, []byte(modContent), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", modPath, err)
-		os.Exit(1)
-	}
-	fmt.Printf("  Generated %s\n", filepath.Join(*outDir, "mod.rs"))
-
-	fmt.Printf("\n  Summary: %d files, %d scripts, %d components, %d systems\n",
-		len(results), totalScripts, totalComponents, totalSystems)
+	return cmd, flagArgs, posArgs
 }
 
-// buildAST wraps ast.BuildAST for use by the CLI.
-func buildAST(lang *gotreesitter.Language, source []byte) (*ast.File, error) {
-	return ast.BuildAST(lang, source)
+func usage() {
+	fmt.Fprintln(os.Stderr, "Usage: fyxc build [dir] [--check] [--cargo-check] [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "       fyxc check [dir] [--cargo-check] [--out <dir>]")
 }

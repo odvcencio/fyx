@@ -16,76 +16,95 @@ import (
 //  5. System functions + runner (ECS)
 //  6. register_scripts function
 func TranspileFile(file ast.File) string {
-	var sections []string
+	return TranspileFileResult(file, Options{}).Code
+}
 
-	// 1. Rust passthrough items
+// TranspileFileResult transpiles a file with project-aware options and source mapping.
+func TranspileFileResult(file ast.File, opts Options) GeneratedFile {
+	e := NewEmitter()
+	EmitFile(e, file, opts)
+	return GeneratedFile{
+		Code:    e.String(),
+		LineMap: e.LineMap(),
+	}
+}
+
+// EmitFile writes a complete file into an emitter.
+func EmitFile(e *RustEmitter, file ast.File, opts Options) {
+	if len(opts.SignalIndex) == 0 {
+		opts.SignalIndex = BuildSignalIndex([]ast.File{file})
+	}
+
+	hasSection := false
+	emitSectionBreak := func() {
+		if hasSection {
+			e.Blank()
+			e.Blank()
+		}
+		hasSection = true
+	}
+
+	if len(file.Imports) > 0 {
+		emitSectionBreak()
+		for _, imp := range file.Imports {
+			usePath := relativeImportUsePath(opts.CurrentModule, importSegments(imp.Path))
+			e.LineWithSource(fmt.Sprintf("use %s::*;", usePath), imp.Line)
+		}
+	}
+
 	for _, item := range file.RustItems {
 		src := strings.TrimSpace(item.Source)
-		if src != "" {
-			sections = append(sections, src)
+		if src == "" {
+			continue
+		}
+		emitSectionBreak()
+		for i, line := range strings.Split(src, "\n") {
+			e.LineWithSource(strings.TrimRight(line, " \t"), item.Line+i)
 		}
 	}
 
-	// 2. Signal message structs for all scripts
 	for _, s := range file.Scripts {
-		if len(s.Signals) > 0 {
-			code := TranspileSignalStructs(s.Name, s.Signals)
-			if code != "" {
-				sections = append(sections, strings.TrimRight(code, "\n"))
-			}
+		if len(s.Signals) == 0 {
+			continue
 		}
+		emitSectionBreak()
+		EmitSignalStructs(e, s.Name, s.Signals)
 	}
 
-	// 3. Component structs (ECS)
 	for _, c := range file.Components {
-		code := TranspileComponent(c)
-		if code != "" {
-			sections = append(sections, strings.TrimRight(code, "\n"))
-		}
+		emitSectionBreak()
+		EmitComponent(e, c)
 	}
 
-	// 4. Script structs + ScriptTrait impls
 	for _, s := range file.Scripts {
-		code := transpileScriptFull(s)
-		if code != "" {
-			sections = append(sections, strings.TrimRight(code, "\n"))
-		}
+		emitSectionBreak()
+		EmitScript(e, transpileScriptFull(s, opts), opts)
 	}
 
-	// 5. System functions + runner (ECS)
 	if len(file.Systems) > 0 {
 		for _, s := range file.Systems {
-			code := TranspileSystem(s)
-			if code != "" {
-				sections = append(sections, strings.TrimRight(code, "\n"))
-			}
+			emitSectionBreak()
+			EmitSystem(e, s)
 		}
-		runner := TranspileSystemRunner(file.Systems)
-		if runner != "" {
-			sections = append(sections, strings.TrimRight(runner, "\n"))
-		}
+		emitSectionBreak()
+		EmitSystemRunner(e, file.Systems)
 	}
 
-	// 6. register_scripts function
 	if len(file.Scripts) > 0 {
-		reg := generateRegisterScripts(file.Scripts)
-		sections = append(sections, strings.TrimRight(reg, "\n"))
+		emitSectionBreak()
+		EmitRegisterScripts(e, file.Scripts)
 	}
-
-	return strings.Join(sections, "\n\n") + "\n"
 }
 
 // transpileScriptFull generates the complete Rust output for a single script,
 // integrating reactive shadow fields, reactive update code, signal subscriptions,
 // signal dispatch, and emit statement rewriting into the base TranspileScript output.
-func transpileScriptFull(s ast.Script) string {
+func transpileScriptFull(s ast.Script, opts Options) ast.Script {
 	// Augment the script with reactive shadow fields before transpiling.
 	augmented := augmentWithReactive(s)
 
 	// Augment handlers with signal/reactive integration.
-	augmented = augmentHandlers(augmented, s)
-
-	return TranspileScript(augmented)
+	return augmentHandlers(augmented, s, opts)
 }
 
 // augmentWithReactive adds reactive shadow field declarations and default inits
@@ -108,36 +127,12 @@ func augmentWithReactive(s ast.Script) ast.Script {
 		})
 	}
 
-	// Add defaults for shadow fields
-	defaultInits := ReactiveDefaultInits(s.Fields)
-	if len(defaultInits) > 0 {
-		// Shadow fields with defaults need to be in the fields list with defaults set.
-		// We already added them above; now set their defaults.
-		for i, ex := range extras {
-			for j := range result.Fields {
-				if result.Fields[j].Name == ex.Name {
-					// Parse the default init line to get the value.
-					// ReactiveDefaultInits returns lines like "_health_prev: 100.0,"
-					initLine := defaultInits[i]
-					// Extract value after ": " and before trailing ","
-					colonIdx := strings.Index(initLine, ": ")
-					if colonIdx >= 0 {
-						val := initLine[colonIdx+2:]
-						val = strings.TrimSuffix(val, ",")
-						result.Fields[j].Default = val
-					}
-					break
-				}
-			}
-		}
-	}
-
 	return result
 }
 
 // augmentHandlers integrates reactive update code, signal subscriptions,
 // signal dispatch, and emit rewriting into the script's handlers.
-func augmentHandlers(s ast.Script, original ast.Script) ast.Script {
+func augmentHandlers(s ast.Script, original ast.Script, opts Options) ast.Script {
 	result := s
 	result.Handlers = make([]ast.Handler, len(s.Handlers))
 	copy(result.Handlers, s.Handlers)
@@ -149,7 +144,7 @@ func augmentHandlers(s ast.Script, original ast.Script) ast.Script {
 	subscriptionCode := TranspileConnectSubscriptions(original.Connects)
 
 	// Signal dispatch for on_message
-	dispatchCode := TranspileConnectDispatch(original.Connects)
+	dispatchCode := TranspileConnectDispatch(original.Connects, opts.SignalIndex)
 
 	// Rewrite emit statements in all handler bodies
 	if len(original.Signals) > 0 {
@@ -237,14 +232,23 @@ func mergeBodyCode(first, second string) string {
 // all script constructors with the Fyrox plugin system.
 func generateRegisterScripts(scripts []ast.Script) string {
 	e := NewEmitter()
-	e.Line("pub fn register_scripts(ctx: &mut PluginRegistrationContext) {")
+	EmitRegisterScripts(e, scripts)
+	return e.String()
+}
+
+// EmitRegisterScripts writes the register_scripts helper into an emitter.
+func EmitRegisterScripts(e *RustEmitter, scripts []ast.Script) {
+	line := 1
+	if len(scripts) > 0 && scripts[0].Line != 0 {
+		line = scripts[0].Line
+	}
+	e.LineWithSource("pub fn register_scripts(ctx: &mut PluginRegistrationContext) {", line)
 	e.Indent()
 	for _, s := range scripts {
-		e.Linef("ctx.serialization_context.script_constructors.add::<%s>(\"%s\");", s.Name, s.Name)
+		e.LineWithSource(fmt.Sprintf("ctx.serialization_context.script_constructors.add::<%s>(\"%s\");", s.Name, s.Name), s.Line)
 	}
 	e.Dedent()
-	e.Line("}")
-	return e.String()
+	e.LineWithSource("}", line)
 }
 
 // TranspileRegisterScripts is a public convenience for generating just the

@@ -217,6 +217,28 @@ impl CustomData {
 	}
 }
 
+func TestParseImports(t *testing.T) {
+	lang := generateLang(t)
+	parser := gotreesitter.NewParser(lang)
+
+	input := `import combat.weapon
+import ui::hud
+
+script Player {}
+`
+	tree, err := parser.Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sexpr := tree.RootNode().SExpr(lang)
+	if strings.Contains(sexpr, "ERROR") {
+		t.Errorf("parse tree contains ERROR: %s", sexpr)
+	}
+	if !strings.Contains(sexpr, "import_statement") {
+		t.Errorf("expected import_statement nodes, got: %s", sexpr)
+	}
+}
+
 func TestParseEmptyScript(t *testing.T) {
 	lang := generateLang(t)
 	parser := gotreesitter.NewParser(lang)

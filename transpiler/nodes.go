@@ -24,30 +24,36 @@ func hasNodeOrResourceFields(fields []ast.Field) bool {
 func GenerateNodeResolution(fields []ast.Field) string {
 	var lines []string
 	for _, f := range fields {
-		switch f.Modifier {
-		case ast.FieldNode:
-			name := unquote(f.Default)
-			lines = append(lines, fmt.Sprintf(
-				"self.%s = ctx.scene.graph.find_by_name_from_root(\"%s\")\n    .map(|(h, _)| h)\n    .unwrap_or_default();",
-				f.Name, name,
-			))
-		case ast.FieldNodes:
-			pattern := unquote(f.Default)
-			lines = append(lines, fmt.Sprintf(
-				"self.%s = ctx.scene.graph.find_by_name_from_root(\"%s\")\n    .map(|(h, _)| h)\n    .into_iter()\n    .collect();",
-				f.Name, pattern,
-			))
-		case ast.FieldResource:
-			path := unquote(f.Default)
-			// Strip res:// prefix if present
-			path = strings.TrimPrefix(path, "res://")
-			lines = append(lines, fmt.Sprintf(
-				"self.%s = Some(ctx.resource_manager.request::<%s>(\"%s\"));",
-				f.Name, f.TypeExpr, path,
-			))
-		}
+		lines = append(lines, resolutionLinesForField(f)...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func resolutionLinesForField(f ast.Field) []string {
+	switch f.Modifier {
+	case ast.FieldNode:
+		name := unquote(f.Default)
+		return []string{
+			fmt.Sprintf("self.%s = ctx.scene.graph.find_by_name_from_root(\"%s\")", f.Name, name),
+			"    .map(|(h, _)| h)",
+			"    .unwrap_or_default();",
+		}
+	case ast.FieldNodes:
+		pattern := unquote(f.Default)
+		return []string{
+			fmt.Sprintf("self.%s = ctx.scene.graph.find_by_name_from_root(\"%s\")", f.Name, pattern),
+			"    .map(|(h, _)| h)",
+			"    .into_iter()",
+			"    .collect();",
+		}
+	case ast.FieldResource:
+		path := strings.TrimPrefix(unquote(f.Default), "res://")
+		return []string{
+			fmt.Sprintf("self.%s = Some(ctx.resource_manager.request::<%s>(\"%s\"));", f.Name, f.TypeExpr, path),
+		}
+	default:
+		return nil
+	}
 }
 
 // nodeFieldRustType returns the Rust type for a node/nodes/resource field.

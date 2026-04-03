@@ -70,8 +70,8 @@ func TestTranspileScriptDefaultImpl(t *testing.T) {
 	if !strings.Contains(out, `name: "goblin".to_string()`) {
 		t.Errorf("missing name default: %s", out)
 	}
-	if !strings.Contains(out, "..Default::default()") {
-		t.Errorf("missing ..Default::default(): %s", out)
+	if !strings.Contains(out, "timer: Default::default()") {
+		t.Errorf("missing fallback default: %s", out)
 	}
 }
 
@@ -83,8 +83,11 @@ func TestTranspileScriptNoDefaultImpl(t *testing.T) {
 		},
 	}
 	out := TranspileScript(s)
-	if strings.Contains(out, "impl Default for Simple") {
-		t.Errorf("should not have Default impl when no defaults: %s", out)
+	if !strings.Contains(out, "impl Default for Simple") {
+		t.Errorf("should always have Default impl: %s", out)
+	}
+	if !strings.Contains(out, "x: Default::default()") {
+		t.Errorf("missing field fallback default: %s", out)
 	}
 }
 

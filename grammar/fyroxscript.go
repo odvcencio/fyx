@@ -12,10 +12,27 @@ func FyroxScriptGrammar() *grammargen.Grammar {
 	// Top-level structure
 	g.Define("source_file", grammargen.Repeat(grammargen.Sym("_item")))
 	g.Define("_item", grammargen.Choice(
+		grammargen.Sym("import_statement"),
 		grammargen.Sym("script_declaration"),
 		grammargen.Sym("component_declaration"),
 		grammargen.Sym("system_declaration"),
 		grammargen.Sym("rust_item"),
+	))
+
+	g.Define("import_statement", grammargen.Seq(
+		grammargen.Str("import"),
+		grammargen.Field("path", grammargen.Sym("import_path")),
+	))
+
+	g.Define("import_path", grammargen.Seq(
+		grammargen.Sym("identifier"),
+		grammargen.Repeat(grammargen.Seq(
+			grammargen.Choice(
+				grammargen.Str("."),
+				grammargen.Str("::"),
+			),
+			grammargen.Sym("identifier"),
+		)),
 	))
 
 	// Rust passthrough: any top-level Rust construct that isn't script/component/system.

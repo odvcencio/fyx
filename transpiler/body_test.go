@@ -3,6 +3,8 @@ package transpiler
 import (
 	"strings"
 	"testing"
+
+	"github.com/odvcencio/fyrox-lang/ast"
 )
 
 func TestRewriteSelfShortcuts(t *testing.T) {
@@ -11,7 +13,7 @@ let fwd = self.forward();
 let p = self.parent();
 self.node.rotate_y(0.5);`
 
-	out := RewriteBody(body, "MyScript")
+	out := RewriteBody(body, "MyScript", nil, ast.HandlerUpdate)
 	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].global_position()") {
 		t.Errorf("self.position() not rewritten: %s", out)
 	}
@@ -28,7 +30,7 @@ self.node.rotate_y(0.5);`
 
 func TestRewriteSpawn(t *testing.T) {
 	body := `let goblin = spawn self.prefab at Vector3::new(0.0, 1.0, 0.0);`
-	out := RewriteBody(body, "Spawner")
+	out := RewriteBody(body, "Spawner", nil, ast.HandlerUpdate)
 	if !strings.Contains(out, "instantiate") {
 		t.Errorf("spawn not rewritten: %s", out)
 	}
@@ -41,7 +43,7 @@ func TestRewritePreservesNormalRust(t *testing.T) {
 	body := `let x = 5;
 self.speed += 1.0;
 println!("hello");`
-	out := RewriteBody(body, "Test")
+	out := RewriteBody(body, "Test", nil, ast.HandlerUpdate)
 	if out != body {
 		t.Errorf("normal Rust should pass through unchanged, got: %s", out)
 	}
@@ -49,7 +51,7 @@ println!("hello");`
 
 func TestRewriteStandaloneNode(t *testing.T) {
 	body := `let n = self.node;`
-	out := RewriteBody(body, "Test")
+	out := RewriteBody(body, "Test", nil, ast.HandlerUpdate)
 	if !strings.Contains(out, "ctx.scene.graph[ctx.handle]") {
 		t.Errorf("standalone self.node not rewritten: %s", out)
 	}
@@ -57,7 +59,7 @@ func TestRewriteStandaloneNode(t *testing.T) {
 
 func TestRewriteSpawnPosition(t *testing.T) {
 	body := `spawn self.prefab at pos;`
-	out := RewriteBody(body, "Test")
+	out := RewriteBody(body, "Test", nil, ast.HandlerUpdate)
 	if !strings.Contains(out, "set_position(pos)") {
 		t.Errorf("spawn at position not correctly extracted: %s", out)
 	}
@@ -69,8 +71,36 @@ func TestRewriteSpawnPosition(t *testing.T) {
 func TestRewriteDoesNotRewriteSelfFields(t *testing.T) {
 	body := `self.health -= 10.0;
 self.name = "goblin".to_string();`
-	out := RewriteBody(body, "Enemy")
+	out := RewriteBody(body, "Enemy", nil, ast.HandlerUpdate)
 	if out != body {
 		t.Errorf("self.field access should not be rewritten, got: %s", out)
+	}
+}
+
+func TestRewriteNodeFieldMethods(t *testing.T) {
+	body := `self.flash.set_visibility(false);
+let pos = self.muzzle.global_position();`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "flash"},
+		{Modifier: ast.FieldNode, Name: "muzzle"},
+	}
+
+	out := RewriteBody(body, "Weapon", fields, ast.HandlerUpdate)
+	if !strings.Contains(out, "ctx.scene.graph[self.flash].set_visibility(false)") {
+		t.Errorf("node field method not rewritten: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[self.muzzle].global_position()") {
+		t.Errorf("node field access not rewritten: %s", out)
+	}
+}
+
+func TestRewriteDtShorthand(t *testing.T) {
+	body := `self.cooldown -= dt;`
+	out := RewriteBody(body, "Weapon", nil, ast.HandlerUpdate)
+	if !strings.Contains(out, "let dt = ctx.dt;") {
+		t.Errorf("dt shorthand not injected: %s", out)
+	}
+	if !strings.Contains(out, "self.cooldown -= dt;") {
+		t.Errorf("body should be preserved: %s", out)
 	}
 }
