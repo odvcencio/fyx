@@ -1,0 +1,60 @@
+script Weapon {
+    inspect damage: f32 = 25.0
+    inspect fire_rate: f32 = 0.1
+
+    node muzzle: Node = "MuzzlePoint"
+    node flash: Light = "MuzzleFlash"
+    resource fire_sound: SoundBuffer = "res://audio/rifle_fire.wav"
+
+    reactive ammo: i32 = 30
+    derived can_fire: bool = self.ammo > 0
+    derived ammo_display: String = format!("{} / 30", self.ammo)
+
+    signal fired(position: Vector3, direction: Vector3)
+    signal emptied()
+
+    cooldown: f32
+
+    on update(ctx) {
+        self.cooldown -= ctx.dt;
+        self.flash.set_visibility(false);
+    }
+}
+
+script WeaponHUD {
+    node ammo_label: Text = "UI/AmmoCount"
+    node crosshair: Sprite = "UI/Crosshair"
+
+    connect Weapon::fired(pos, dir) {
+        self.crosshair.animate("kick");
+    }
+}
+
+component Projectile {
+    damage: f32
+    owner: Handle<Node>
+    lifetime: f32
+}
+
+component Velocity {
+    linear: Vector3
+    angular: Vector3
+}
+
+system move_projectiles(dt: f32) {
+    query(pos: &mut Transform, vel: &Velocity) {
+        pos.translate(vel.linear * dt);
+    }
+}
+
+system expire_projectiles(dt: f32) {
+    query(entity: Entity, proj: &mut Projectile) {
+        proj.lifetime -= dt;
+    }
+}
+
+system projectile_hits {
+    query(entity: Entity, pos: &Transform, vel: &Velocity, proj: &Projectile) {
+        do_hit_check(entity, pos, vel, proj);
+    }
+}
