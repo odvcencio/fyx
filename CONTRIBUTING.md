@@ -35,6 +35,6 @@ go run ./cmd/fyxc check testdata --cargo-check
 - Default branch is `main`.
 - CI runs on pushes to `main` and on pull requests.
 
-## Still Needs Maintainer Choice
+## License
 
-- The repo does not yet declare an open-source license. That needs an explicit maintainer decision rather than an accidental default.
+Fyx is MIT-licensed, matching Fyrox.

@@ -134,6 +134,10 @@ go run ./cmd/fyxc build testdata --out generated
 - [Contributing](CONTRIBUTING.md)
 - [Examples](examples/README.md)
 
+## License
+
+MIT, matching Fyrox.
+
 ## Naming
 
 The public-facing name is `Fyx`.
