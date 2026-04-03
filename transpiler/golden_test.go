@@ -21,7 +21,7 @@ func goldenLang(t *testing.T) *gotreesitter.Language {
 }
 
 func TestGoldenFiles(t *testing.T) {
-	cases := []string{"minimal", "signals", "reactive", "ecs"}
+	cases := []string{"minimal", "signals", "reactive", "ecs", "arbiter"}
 	lang := goldenLang(t)
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {

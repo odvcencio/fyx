@@ -203,3 +203,18 @@ func TestTranspileSystemMultipleQueries(t *testing.T) {
 		t.Errorf("missing second query type: %s", out)
 	}
 }
+
+func TestTranspileSystemRewritesEcsSpawn(t *testing.T) {
+	s := ast.System{
+		Name: "spawn_projectiles",
+		Body: `let projectile = ecs.spawn(
+    Projectile { damage: 5.0, lifetime: dt },
+    Velocity { linear: Vector3::default(), angular: Vector3::default() },
+);`,
+		Params: []ast.Param{{Name: "dt", TypeExpr: "f32"}},
+	}
+	out := TranspileSystem(s)
+	if !strings.Contains(out, "world.spawn((Projectile { damage: 5.0, lifetime: dt }, Velocity { linear: Vector3::default(), angular: Vector3::default() }))") {
+		t.Errorf("ecs.spawn should be rewritten to world.spawn tuple: %s", out)
+	}
+}

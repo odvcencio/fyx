@@ -111,3 +111,41 @@ func TestValidateGeneratedFilesMapsBackToSource(t *testing.T) {
 		t.Fatalf("expected source line 3, got %+v", diagnostics[0])
 	}
 }
+
+func TestWriteOutputTreeEmitsArbiterSidecar(t *testing.T) {
+	root := t.TempDir()
+	inputDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inputDir, "brain.fyx"), []byte(`worker decide_directive {
+    input ThreatOutcome
+    output NpcDirective
+}
+
+arbiter npc_brain {
+    poll every_frame
+    use_worker decide_directive
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := compileProject(inputDir)
+	if err != nil {
+		t.Fatalf("compileProject: %v", err)
+	}
+
+	outDir := filepath.Join(root, "generated")
+	if err := writeOutputTree(outDir, result.Files, true); err != nil {
+		t.Fatalf("writeOutputTree: %v", err)
+	}
+
+	arbOut, err := os.ReadFile(filepath.Join(outDir, "brain.arb"))
+	if err != nil {
+		t.Fatalf("read arbiter output: %v", err)
+	}
+	if !strings.Contains(string(arbOut), "worker decide_directive") || !strings.Contains(string(arbOut), "arbiter npc_brain") {
+		t.Fatalf("unexpected arbiter sidecar:\n%s", string(arbOut))
+	}
+}

@@ -11,6 +11,7 @@ import (
 // and the position expression. The resource expression is non-greedy to stop at ` at `.
 var spawnRe = regexp.MustCompile(`spawn\s+(\S+)\s+at\s+(.+)`)
 var shorthandDtRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])dt\b`)
+var ecsSpawnPrefixRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])ecs\s*\.\s*spawn\s*\(`)
 
 // RewriteBody transforms FyroxScript shortcuts in handler bodies to valid Rust.
 //
@@ -23,6 +24,7 @@ var shorthandDtRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])dt\b`)
 //
 // Spawn syntax:
 //   - spawn RESOURCE at POS → block that instantiates and positions the prefab
+//   - ecs.spawn(A { ... }, B { ... }) → ctx.ecs.spawn((A { ... }, B { ... }))
 //
 // Regular self.field access (e.g., self.speed) is NOT rewritten.
 func RewriteBody(body string, scriptName string, fields []ast.Field, kind ast.HandlerKind) string {
@@ -65,5 +67,40 @@ func RewriteBody(body string, scriptName string, fields []ast.Field, kind ast.Ha
 			"ctx.scene.graph[_inst].local_transform_mut().set_position(" + pos + "); _inst }"
 	})
 
-	return body
+	return rewriteEcsSpawnCalls(body, "ctx.ecs")
+}
+
+func rewriteEcsSpawnCalls(body, receiver string) string {
+	result := body
+	for {
+		loc := ecsSpawnPrefixRe.FindStringSubmatchIndex(result)
+		if loc == nil {
+			return result
+		}
+
+		prefix := result[:loc[0]]
+		leading := ""
+		if loc[2] >= 0 {
+			leading = result[loc[2]:loc[3]]
+		}
+		argsStart := loc[1]
+		closeIdx := findBalancedParen(result, argsStart)
+		if closeIdx < 0 {
+			return result
+		}
+
+		args := splitTopLevelCSV(result[argsStart:closeIdx])
+		bundle := "()"
+		switch len(args) {
+		case 0:
+			bundle = "()"
+		case 1:
+			bundle = "(" + args[0] + ",)"
+		default:
+			bundle = "(" + strings.Join(args, ", ") + ")"
+		}
+
+		replacement := leading + receiver + ".spawn(" + bundle + ")"
+		result = prefix + replacement + result[closeIdx+1:]
+	}
 }

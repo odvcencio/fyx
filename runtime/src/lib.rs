@@ -6,5 +6,5 @@
 pub mod ecs;
 
 pub use ecs::{
-    ComponentBundle, EcsWorld, Entity, Mut, QueryBundle, QueryBundleMut, Ref,
+    ComponentBundle, EcsWorld, Entity, Mut, QueryBundle, QueryBundleMut, Ref, ScriptEcs,
 };

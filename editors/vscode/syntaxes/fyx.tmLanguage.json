@@ -1,0 +1,141 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Fyx",
+  "scopeName": "source.fyx",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#signalPaths"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#specials"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.fyx",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.fyx",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.fyx",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.fyx",
+          "match": "\\b(import|script|component|system|query|on|signal|connect|watch|emit|inspect|node|nodes|resource|reactive|derived|source|worker|rule|arbiter)\\b"
+        },
+        {
+          "name": "storage.modifier.fyx",
+          "match": "\\b(init|start|update|deinit|event|message)\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "entity.name.type.fyx",
+          "match": "\\b(script|component|source|worker|rule|arbiter)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.fyx"
+            },
+            "2": {
+              "name": "entity.name.type.fyx"
+            }
+          }
+        },
+        {
+          "name": "entity.name.function.fyx",
+          "match": "\\b(system|signal)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.fyx"
+            },
+            "2": {
+              "name": "entity.name.function.fyx"
+            }
+          }
+        }
+      ]
+    },
+    "signalPaths": {
+      "patterns": [
+        {
+          "name": "meta.path.signal.fyx",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "support.type.fyx"
+            },
+            "2": {
+              "name": "entity.name.function.fyx"
+            }
+          }
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.fyx",
+          "match": "(:\\s*)([A-Za-z_][A-Za-z0-9_:<>]*)",
+          "captures": {
+            "2": {
+              "name": "support.type.fyx"
+            }
+          }
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.fyx",
+          "match": "\\b\\d+(?:\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "specials": {
+      "patterns": [
+        {
+          "name": "variable.language.fyx",
+          "match": "\\b(self|ctx|ecs|dt)\\b"
+        }
+      ]
+    }
+  }
+}

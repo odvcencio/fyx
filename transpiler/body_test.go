@@ -104,3 +104,22 @@ func TestRewriteDtShorthand(t *testing.T) {
 		t.Errorf("body should be preserved: %s", out)
 	}
 }
+
+func TestRewriteScriptEcsSpawn(t *testing.T) {
+	body := `let projectile = ecs.spawn(
+    Projectile { damage: 25.0, lifetime: 1.0 },
+    Velocity { linear: Vector3::default(), angular: Vector3::default() },
+);`
+	out := RewriteBody(body, "Spawner", nil, ast.HandlerUpdate)
+	if !strings.Contains(out, "ctx.ecs.spawn((Projectile { damage: 25.0, lifetime: 1.0 }, Velocity { linear: Vector3::default(), angular: Vector3::default() }))") {
+		t.Errorf("ecs.spawn not rewritten to ctx.ecs bundle spawn: %s", out)
+	}
+}
+
+func TestRewriteScriptEcsSpawnSingleComponent(t *testing.T) {
+	body := `let marker = ecs.spawn(Marker { active: true });`
+	out := RewriteBody(body, "Spawner", nil, ast.HandlerUpdate)
+	if !strings.Contains(out, "ctx.ecs.spawn((Marker { active: true },))") {
+		t.Errorf("single-component ecs.spawn should become a single-element tuple: %s", out)
+	}
+}

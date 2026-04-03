@@ -149,9 +149,7 @@ impl EcsWorld {
     }
 
     /// Query for entities with 3 components (immutable).
-    pub fn query3<A: 'static, B: 'static, C: 'static>(
-        &self,
-    ) -> Vec<(Entity, (&A, &B, &C))> {
+    pub fn query3<A: 'static, B: 'static, C: 'static>(&self) -> Vec<(Entity, (&A, &B, &C))> {
         let mut results = Vec::new();
         let (sa, sb, sc) = match (
             self.storages.get(&TypeId::of::<A>()),
@@ -233,6 +231,30 @@ impl EcsWorld {
 impl Default for EcsWorld {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Script-facing adapter that forwards spawn/despawn operations into the ECS
+/// world without exposing the rest of the world API through script contexts.
+pub struct ScriptEcs<'a> {
+    world: &'a mut EcsWorld,
+}
+
+impl<'a> ScriptEcs<'a> {
+    pub fn new(world: &'a mut EcsWorld) -> Self {
+        Self { world }
+    }
+
+    pub fn spawn<B: ComponentBundle>(&mut self, components: B) -> Entity {
+        self.world.spawn(components)
+    }
+
+    pub fn despawn(&mut self, entity: Entity) {
+        self.world.despawn(entity);
+    }
+
+    pub fn world(&mut self) -> &mut EcsWorld {
+        self.world
     }
 }
 
@@ -396,10 +418,7 @@ pub struct Ref<T>(std::marker::PhantomData<T>);
 
 // Helper: given the world and an entity id, get a *mut to the component.
 // SAFETY: caller must ensure no aliasing borrows exist for the same component.
-unsafe fn get_component_ptr<T: 'static>(
-    world: &mut EcsWorld,
-    entity_id: u64,
-) -> Option<*mut T> {
+unsafe fn get_component_ptr<T: 'static>(world: &mut EcsWorld, entity_id: u64) -> Option<*mut T> {
     let type_id = TypeId::of::<T>();
     let storage = world.storages.get_mut(&type_id)?;
     let idx = *storage.sparse.get(&entity_id)?;
@@ -599,10 +618,7 @@ mod tests {
     #[test]
     fn spawn_and_query() {
         let mut world = EcsWorld::new();
-        world.spawn((
-            Position { x: 0.0, y: 0.0 },
-            Velocity { dx: 1.0, dy: 0.0 },
-        ));
+        world.spawn((Position { x: 0.0, y: 0.0 }, Velocity { dx: 1.0, dy: 0.0 }));
         let count = world.query::<(&Position, &Velocity)>().count();
         assert_eq!(count, 1);
     }
@@ -618,10 +634,7 @@ mod tests {
     #[test]
     fn query_mut_test() {
         let mut world = EcsWorld::new();
-        world.spawn((
-            Position { x: 0.0, y: 0.0 },
-            Velocity { dx: 1.0, dy: 2.0 },
-        ));
+        world.spawn((Position { x: 0.0, y: 0.0 }, Velocity { dx: 1.0, dy: 2.0 }));
         for (_e, (pos, vel)) in world.query_mut::<(Mut<Position>, Ref<Velocity>)>() {
             pos.x += vel.dx;
             pos.y += vel.dy;
@@ -637,10 +650,7 @@ mod tests {
         let mut world = EcsWorld::new();
         world.spawn((Position { x: 0.0, y: 0.0 },));
         world.spawn((Position { x: 1.0, y: 1.0 },));
-        world.spawn((
-            Position { x: 2.0, y: 2.0 },
-            Velocity { dx: 0.0, dy: 0.0 },
-        ));
+        world.spawn((Position { x: 2.0, y: 2.0 }, Velocity { dx: 0.0, dy: 0.0 }));
         assert_eq!(world.query::<(&Position,)>().count(), 3);
         assert_eq!(world.query::<(&Position, &Velocity)>().count(), 1);
     }
@@ -668,10 +678,7 @@ mod tests {
     #[test]
     fn mut_query_all_mutable() {
         let mut world = EcsWorld::new();
-        world.spawn((
-            Position { x: 0.0, y: 0.0 },
-            Velocity { dx: 5.0, dy: 10.0 },
-        ));
+        world.spawn((Position { x: 0.0, y: 0.0 }, Velocity { dx: 5.0, dy: 10.0 }));
         for (_e, (pos, vel)) in world.query_mut::<(Mut<Position>, Mut<Velocity>)>() {
             pos.x += vel.dx;
             vel.dx = 0.0;
@@ -689,5 +696,14 @@ mod tests {
         let world = EcsWorld::new();
         assert_eq!(world.query::<(&Position,)>().count(), 0);
         assert_eq!(world.query::<(&Position, &Velocity)>().count(), 0);
+    }
+
+    #[test]
+    fn script_ecs_bridge() {
+        let mut world = EcsWorld::new();
+        let mut ecs = ScriptEcs::new(&mut world);
+        let entity = ecs.spawn((Position { x: 7.0, y: 3.0 },));
+        ecs.despawn(entity);
+        assert_eq!(ecs.world().query::<(&Position,)>().count(), 0);
     }
 }

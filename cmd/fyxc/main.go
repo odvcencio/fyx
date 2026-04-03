@@ -57,13 +57,13 @@ func main() {
 	}
 
 	if *checkOnly {
-		fmt.Printf("\n  Check passed: %d files, %d scripts, %d components, %d systems\n",
-			len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems)
+		fmt.Printf("\n  Check passed: %d files, %d scripts, %d components, %d systems, %d arbiter decls\n",
+			len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems, result.TotalArbiter)
 		return
 	}
 
-	fmt.Printf("\n  Summary: %d files, %d scripts, %d components, %d systems\n",
-		len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems)
+	fmt.Printf("\n  Summary: %d files, %d scripts, %d components, %d systems, %d arbiter decls\n",
+		len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems, result.TotalArbiter)
 }
 
 func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) {

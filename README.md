@@ -36,14 +36,16 @@ Phase 2 work now landed in this repo:
 - `cargo check` validation of generated Rust through `fyxc check --cargo-check`
 - Source-aware diagnostics mapped back to `.fyx` lines
 - Script-side `dt` shorthand in update handlers
+- Script-side `ecs.spawn(...)` rewritten into tuple-bundle ECS spawns
+- First-pass Arbiter authoring surface: top-level `source` / `worker` / `rule` / `arbiter` blocks are preserved into generated Rust and emitted as `.arb` sidecars
+- Editor artifacts: `queries/highlights.scm` plus a minimal VS Code grammar under `editors/vscode/`
 - Codegen fixes for compile-safe defaults, signal binding, node field rewrites, and ECS single-query destructuring
 
 Still on the roadmap:
 
-- Arbiter integration
 - `fyrox-template --lang fyx`
-- Editor plugin support in Fyroxed
-- Script-to-ECS `ecs.spawn(...)` bridge
+- Deeper Arbiter runtime wiring beyond preserved bundles
+- Native Fyroxed plugin support beyond the shipped highlighting assets
 - Hot reload/watch mode
 - LSP
 
@@ -65,6 +67,32 @@ script Weapon {
 }
 ```
 
+```rust
+source npc_senses {
+    path sensor://vision
+}
+
+worker decide_directive {
+    input ThreatOutcome
+    output NpcDirective
+    exec "npc-directive"
+}
+
+arbiter npc_brain {
+    poll every_frame
+    use_worker decide_directive
+}
+
+script Spawner {
+    on update(ctx) {
+        let spawned = ecs.spawn(
+            Projectile { damage: 10.0, lifetime: 1.0 },
+            Velocity { linear: Vector3::default(), angular: Vector3::default() },
+        );
+    }
+}
+```
+
 ## Commands
 
 ```bash
@@ -73,6 +101,8 @@ cd runtime && cargo test
 go run ./cmd/fyxc check testdata --cargo-check
 go run ./cmd/fyxc build testdata --out generated
 ```
+
+`fyxc build` now also writes `.arb` sidecars for any preserved Arbiter declarations alongside the generated `.rs` and `.fyxmap.json` files.
 
 ## Naming
 

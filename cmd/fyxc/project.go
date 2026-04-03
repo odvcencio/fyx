@@ -27,6 +27,7 @@ type compileResult struct {
 	TotalScripts    int
 	TotalComponents int
 	TotalSystems    int
+	TotalArbiter    int
 }
 
 func compileProject(inputDir string) (*compileResult, error) {
@@ -79,6 +80,7 @@ func compileProject(inputDir string) (*compileResult, error) {
 		result.TotalScripts += len(file.File.Scripts)
 		result.TotalComponents += len(file.File.Components)
 		result.TotalSystems += len(file.File.Systems)
+		result.TotalArbiter += len(file.File.ArbiterDecls)
 	}
 
 	return result, nil
@@ -116,8 +118,8 @@ func buildAST(lang *gotreesitter.Language, source []byte) (*ast.File, error) {
 func printSummary(result *compileResult, outDir string) {
 	for _, file := range result.Files {
 		target := filepath.ToSlash(filepath.Join(outDir, strings.TrimSuffix(file.SourcePath, ".fyx")+".rs"))
-		fmt.Printf("  Transpiled %s -> %s (%d scripts, %d components, %d systems)\n",
-			file.SourcePath, target, len(file.File.Scripts), len(file.File.Components), len(file.File.Systems))
+		fmt.Printf("  Transpiled %s -> %s (%d scripts, %d components, %d systems, %d arbiter decls)\n",
+			file.SourcePath, target, len(file.File.Scripts), len(file.File.Components), len(file.File.Systems), len(file.File.ArbiterDecls))
 	}
 }
 
@@ -170,6 +172,12 @@ func writeOutputTree(outDir string, files []compiledFile, writeSourceMap bool) e
 				return err
 			}
 			if err := os.WriteFile(mapPath, payload, 0o644); err != nil {
+				return err
+			}
+		}
+		if file.Output.ArbiterBundle != "" {
+			arbPath := strings.TrimSuffix(outPath, ".rs") + ".arb"
+			if err := os.WriteFile(arbPath, []byte(file.Output.ArbiterBundle+"\n"), 0o644); err != nil {
 				return err
 			}
 		}

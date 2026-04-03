@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"bytes"
 	"strings"
 
 	gotreesitter "github.com/odvcencio/gotreesitter"
@@ -9,13 +10,14 @@ import (
 // BuildAST parses source using the provided language and walks the CST to
 // produce an ast.File.
 func BuildAST(lang *gotreesitter.Language, source []byte) (*File, error) {
+	sanitized, decls := extractArbiterDecls(source)
 	parser := gotreesitter.NewParser(lang)
-	tree, err := parser.Parse(source)
+	tree, err := parser.Parse(sanitized)
 	if err != nil {
 		return nil, err
 	}
 	root := tree.RootNode()
-	file := &File{}
+	file := &File{ArbiterDecls: decls}
 
 	for i := 0; i < root.NamedChildCount(); i++ {
 		child := root.NamedChild(i)
@@ -29,9 +31,11 @@ func BuildAST(lang *gotreesitter.Language, source []byte) (*File, error) {
 		case "system_declaration":
 			file.Systems = append(file.Systems, buildSystem(child, source, lang))
 		case "rust_item":
+			line := sourceLine(child)
+			src := nodeText(child, sanitized)
 			file.RustItems = append(file.RustItems, RustItem{
-				Line:   sourceLine(child),
-				Source: nodeText(child, source),
+				Line:   line,
+				Source: src,
 			})
 		}
 	}
@@ -404,4 +408,166 @@ func extractSystemBodyNonQuery(bodyNode *gotreesitter.Node, source []byte, lang 
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, ""))
+}
+
+func extractArbiterDecls(source []byte) ([]byte, []ArbiterDecl) {
+	sanitized := append([]byte(nil), source...)
+	var decls []ArbiterDecl
+
+	depth := 0
+	line := 1
+	lineStart := 0
+	var quote byte
+	escaped := false
+
+	for i := 0; i < len(source); {
+		if quote != 0 {
+			switch source[i] {
+			case '\\':
+				escaped = !escaped
+			case quote:
+				if !escaped {
+					quote = 0
+				}
+				escaped = false
+			default:
+				escaped = false
+			}
+			if source[i] == '\n' {
+				line++
+				lineStart = i + 1
+			}
+			i++
+			continue
+		}
+
+		if depth == 0 && i == lineStart {
+			start := i
+			for start < len(source) && (source[start] == ' ' || source[start] == '\t') {
+				start++
+			}
+			if decl, end, ok := scanArbiterDecl(source, start, line); ok {
+				decls = append(decls, decl)
+				for j := i; j < end; j++ {
+					if sanitized[j] != '\n' {
+						sanitized[j] = ' '
+					}
+				}
+				line += bytes.Count(source[i:end], []byte{'\n'})
+				i = end
+				lineStart = i
+				continue
+			}
+		}
+
+		switch source[i] {
+		case '"', '\'':
+			quote = source[i]
+			escaped = false
+		case '{':
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+		case '\n':
+			line++
+			lineStart = i + 1
+		}
+		i++
+	}
+
+	return sanitized, decls
+}
+
+func scanArbiterDecl(source []byte, start int, line int) (ArbiterDecl, int, bool) {
+	candidates := []struct {
+		keyword string
+		kind    ArbiterDeclKind
+	}{
+		{keyword: "source", kind: ArbiterDeclSource},
+		{keyword: "worker", kind: ArbiterDeclWorker},
+		{keyword: "rule", kind: ArbiterDeclRule},
+		{keyword: "arbiter", kind: ArbiterDeclArbiter},
+	}
+	for _, candidate := range candidates {
+		if !bytes.HasPrefix(source[start:], []byte(candidate.keyword)) {
+			continue
+		}
+		pos := start + len(candidate.keyword)
+		if pos < len(source) && isIdentByte(source[pos]) {
+			continue
+		}
+		for pos < len(source) && (source[pos] == ' ' || source[pos] == '\t') {
+			pos++
+		}
+		nameStart := pos
+		for pos < len(source) && isIdentByte(source[pos]) {
+			pos++
+		}
+		if pos == nameStart {
+			return ArbiterDecl{}, 0, false
+		}
+		name := string(source[nameStart:pos])
+		for pos < len(source) && (source[pos] == ' ' || source[pos] == '\t') {
+			pos++
+		}
+		if pos >= len(source) || source[pos] != '{' {
+			return ArbiterDecl{}, 0, false
+		}
+		end, ok := scanBalancedBraces(source, pos)
+		if !ok {
+			return ArbiterDecl{}, 0, false
+		}
+		raw := strings.TrimSpace(string(source[start:end]))
+		body := strings.TrimSpace(string(source[pos+1 : end-1]))
+		return ArbiterDecl{
+			Kind:   candidate.kind,
+			Line:   line,
+			Name:   name,
+			Body:   body,
+			Source: raw,
+		}, end, true
+	}
+	return ArbiterDecl{}, 0, false
+}
+
+func scanBalancedBraces(source []byte, open int) (int, bool) {
+	depth := 0
+	var quote byte
+	escaped := false
+	for i := open; i < len(source); i++ {
+		ch := source[i]
+		if quote != 0 {
+			switch ch {
+			case '\\':
+				escaped = !escaped
+			case quote:
+				if !escaped {
+					quote = 0
+				}
+				escaped = false
+			default:
+				escaped = false
+			}
+			continue
+		}
+		switch ch {
+		case '"', '\'':
+			quote = ch
+			escaped = false
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }

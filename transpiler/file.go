@@ -24,8 +24,9 @@ func TranspileFileResult(file ast.File, opts Options) GeneratedFile {
 	e := NewEmitter()
 	EmitFile(e, file, opts)
 	return GeneratedFile{
-		Code:    e.String(),
-		LineMap: e.LineMap(),
+		Code:          e.String(),
+		LineMap:       e.LineMap(),
+		ArbiterBundle: RenderArbiterBundle(file.ArbiterDecls),
 	}
 }
 
@@ -61,6 +62,11 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 		for i, line := range strings.Split(src, "\n") {
 			e.LineWithSource(strings.TrimRight(line, " \t"), item.Line+i)
 		}
+	}
+
+	if len(file.ArbiterDecls) > 0 {
+		emitSectionBreak()
+		EmitArbiterBundle(e, file.ArbiterDecls)
 	}
 
 	for _, s := range file.Scripts {

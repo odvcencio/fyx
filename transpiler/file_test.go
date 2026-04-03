@@ -259,6 +259,22 @@ func TestTranspileFileNoScriptsWithECS(t *testing.T) {
 	}
 }
 
+func TestTranspileFileWithArbiterBundle(t *testing.T) {
+	file := ast.File{
+		ArbiterDecls: []ast.ArbiterDecl{
+			{Kind: ast.ArbiterDeclWorker, Name: "decide_directive", Body: "input ThreatOutcome\noutput NpcDirective"},
+			{Kind: ast.ArbiterDeclArbiter, Name: "npc_brain", Body: "poll 250ms\nsource sensor://vision"},
+		},
+	}
+	out := TranspileFile(file)
+	if !strings.Contains(out, "pub const FYX_ARBITER_BUNDLE") {
+		t.Fatalf("missing arbiter bundle constant: %s", out)
+	}
+	if !strings.Contains(out, "worker decide_directive") || !strings.Contains(out, "arbiter npc_brain") {
+		t.Fatalf("missing preserved arbiter source: %s", out)
+	}
+}
+
 func TestTranspileFileMultipleRegistrations(t *testing.T) {
 	file := ast.File{
 		Scripts: []ast.Script{

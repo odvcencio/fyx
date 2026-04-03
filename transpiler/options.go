@@ -16,8 +16,9 @@ type Options struct {
 
 // GeneratedFile is the transpiled Rust output plus optional source mapping metadata.
 type GeneratedFile struct {
-	Code    string
-	LineMap []int
+	Code          string
+	LineMap       []int
+	ArbiterBundle string
 }
 
 // SourceMap maps generated line numbers back to a source .fyx file.

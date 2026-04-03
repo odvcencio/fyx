@@ -157,18 +157,19 @@ func emitQueryLoop(e *RustEmitter, q ast.Query) {
 	}
 	e.Indent()
 
-		body := strings.TrimSpace(rewriteSystemBody(q.Body))
-		if body != "" {
-			lines := strings.Split(body, "\n")
-			for i, line := range lines {
-				e.LineWithSource(strings.TrimRight(line, " \t"), q.BodyLine+i)
-			}
+	body := strings.TrimSpace(rewriteSystemBody(q.Body))
+	if body != "" {
+		lines := strings.Split(body, "\n")
+		for i, line := range lines {
+			e.LineWithSource(strings.TrimRight(line, " \t"), q.BodyLine+i)
 		}
+	}
 
 	e.Dedent()
 	e.LineWithSource("}", q.Line)
 }
 
 func rewriteSystemBody(body string) string {
+	body = rewriteEcsSpawnCalls(body, "world")
 	return despawnCallRe.ReplaceAllString(body, "world.despawn(")
 }

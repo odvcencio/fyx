@@ -2,11 +2,12 @@ package ast
 
 // File is the root AST node — one per .fyx file.
 type File struct {
-	Imports    []Import
-	Scripts    []Script
-	Components []Component
-	Systems    []System
-	RustItems  []RustItem // passthrough Rust code
+	Imports      []Import
+	Scripts      []Script
+	Components   []Component
+	Systems      []System
+	ArbiterDecls []ArbiterDecl
+	RustItems    []RustItem // passthrough Rust code
 }
 
 // Import represents a top-level module import.
@@ -39,7 +40,7 @@ type Field struct {
 type FieldModifier int
 
 const (
-	FieldBare     FieldModifier = iota
+	FieldBare FieldModifier = iota
 	FieldInspect
 	FieldNode
 	FieldNodes
@@ -61,7 +62,7 @@ type Handler struct {
 type HandlerKind int
 
 const (
-	HandlerInit    HandlerKind = iota
+	HandlerInit HandlerKind = iota
 	HandlerStart
 	HandlerUpdate
 	HandlerDeinit
@@ -94,10 +95,10 @@ type Connect struct {
 
 // Watch represents a reactive watch on a field expression.
 type Watch struct {
-	Line  int
+	Line     int
 	BodyLine int
-	Field string // e.g. "self.is_critical"
-	Body  string
+	Field    string // e.g. "self.is_critical"
+	Body     string
 }
 
 // Component represents a standalone component declaration.
@@ -136,4 +137,23 @@ type QueryParam struct {
 type RustItem struct {
 	Line   int
 	Source string // raw Rust source, emitted unchanged
+}
+
+// ArbiterDeclKind identifies the governed declaration keyword.
+type ArbiterDeclKind string
+
+const (
+	ArbiterDeclSource  ArbiterDeclKind = "source"
+	ArbiterDeclWorker  ArbiterDeclKind = "worker"
+	ArbiterDeclRule    ArbiterDeclKind = "rule"
+	ArbiterDeclArbiter ArbiterDeclKind = "arbiter"
+)
+
+// ArbiterDecl preserves Arbiter-oriented declarations authored in .fyx files.
+type ArbiterDecl struct {
+	Kind   ArbiterDeclKind
+	Line   int
+	Name   string
+	Body   string
+	Source string
 }

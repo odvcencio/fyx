@@ -389,6 +389,7 @@ pub struct ScriptContext {
     pub resource_manager: ResourceManager,
     pub message_sender: MessageSender,
     pub message_dispatcher: MessageDispatcher,
+    pub ecs: EcsWorld,
     pub dt: f32,
 }
 
@@ -396,13 +397,23 @@ pub struct ScriptContext {
 pub struct ScriptMessageContext {
     pub scene: Scene,
     pub handle: Handle<Node>,
+    pub resource_manager: ResourceManager,
     pub message_dispatcher: MessageDispatcher,
     pub message_sender: MessageSender,
+    pub ecs: EcsWorld,
     pub dt: f32,
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct ScriptDeinitContext;
+pub struct ScriptDeinitContext {
+    pub scene: Scene,
+    pub handle: Handle<Node>,
+    pub resource_manager: ResourceManager,
+    pub message_sender: MessageSender,
+    pub message_dispatcher: MessageDispatcher,
+    pub ecs: EcsWorld,
+    pub dt: f32,
+}
 
 pub trait ScriptTrait {
     fn on_init(&mut self, _ctx: &mut ScriptContext) {}
@@ -453,6 +464,8 @@ impl EcsWorld {
     pub fn query_mut<T>(&mut self) -> std::vec::IntoIter<(Entity, T)> {
         Vec::new().into_iter()
     }
+
+    pub fn spawn<T>(&mut self, _bundle: T) -> Entity { 0 }
 
     pub fn despawn(&mut self, _entity: Entity) {}
 }

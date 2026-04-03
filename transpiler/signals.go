@@ -217,28 +217,10 @@ func RewriteEmitStatements(body string, scriptName string, signals []ast.Signal)
 	return result
 }
 
-// findBalancedParen scans from position start in s, counting parenthesis depth,
-// and returns the index of the matching closing paren. Returns -1 if not found.
-func findBalancedParen(s string, start int) int {
-	depth := 1
-	for i := start; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
 // buildMsgFields pairs signal parameter names with argument expressions to produce
 // Rust struct field initialization syntax like "position: self.position(), amount: 10.0".
 func buildMsgFields(params []ast.Param, argsStr string) string {
-	args := splitArgs(argsStr)
+	args := splitTopLevelCSV(argsStr)
 	var fields []string
 	for i, arg := range args {
 		arg = strings.TrimSpace(arg)
@@ -250,32 +232,4 @@ func buildMsgFields(params []ast.Param, argsStr string) string {
 		}
 	}
 	return strings.Join(fields, ", ")
-}
-
-// splitArgs splits a comma-separated argument string, respecting parenthesized sub-expressions.
-// For example, "foo(a, b), c" yields ["foo(a, b)", "c"].
-func splitArgs(s string) []string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-
-	var result []string
-	depth := 0
-	start := 0
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-		case ',':
-			if depth == 0 {
-				result = append(result, strings.TrimSpace(s[start:i]))
-				start = i + 1
-			}
-		}
-	}
-	result = append(result, strings.TrimSpace(s[start:]))
-	return result
 }

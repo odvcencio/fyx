@@ -1,0 +1,34 @@
+{
+  "name": "fyx-language",
+  "displayName": "Fyx Language Support",
+  "version": "0.1.0",
+  "publisher": "odvcencio",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "fyx",
+        "aliases": [
+          "Fyx",
+          "fyx"
+        ],
+        "extensions": [
+          ".fyx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fyx",
+        "scopeName": "source.fyx",
+        "path": "./syntaxes/fyx.tmLanguage.json"
+      }
+    ]
+  }
+}
