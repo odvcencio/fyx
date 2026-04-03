@@ -89,3 +89,74 @@ func TestEndToEndFullExample(t *testing.T) {
 
 	t.Logf("Full transpilation output (%d bytes):\n%s", len(out), out)
 }
+
+func TestEndToEndDepthExample(t *testing.T) {
+	source, err := os.ReadFile("testdata/depth.fyx")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	g := grammar.FyxGrammar()
+	lang, err := grammargen.GenerateLanguage(g)
+	if err != nil {
+		t.Fatalf("generate grammar: %v", err)
+	}
+
+	parser := gotreesitter.NewParser(lang)
+	tree, err := parser.Parse(source)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sexpr := tree.RootNode().SExpr(lang)
+	if strings.Contains(sexpr, "ERROR") {
+		t.Fatalf("parse errors in depth example:\n%s", sexpr)
+	}
+
+	file, err := ast.BuildAST(lang, source)
+	if err != nil {
+		t.Fatalf("build AST: %v", err)
+	}
+
+	if len(file.Imports) != 1 {
+		t.Fatalf("expected 1 import, got %d", len(file.Imports))
+	}
+	if len(file.RustItems) != 2 {
+		t.Fatalf("expected 2 rust items, got %d", len(file.RustItems))
+	}
+	if len(file.Scripts) != 2 {
+		t.Fatalf("expected 2 scripts, got %d", len(file.Scripts))
+	}
+	if len(file.Components) != 2 {
+		t.Fatalf("expected 2 components, got %d", len(file.Components))
+	}
+	if len(file.Systems) != 2 {
+		t.Fatalf("expected 2 systems, got %d", len(file.Systems))
+	}
+
+	out := transpiler.TranspileFileResult(*file, transpiler.Options{
+		CurrentModule: transpiler.ModulePathFromRelative("depth.fyx"),
+		SignalIndex:   transpiler.BuildSignalIndex([]ast.File{*file}),
+		SourcePath:    "depth.fyx",
+	}).Code
+
+	markers := []string{
+		"use super::support::helpers::*;",
+		"fn target_visible(scene: &Scene, origin: Vector3, direction: Vector3, range: f32) -> bool {",
+		"pub struct TurretController {",
+		"pub struct TurretHud {",
+		"TurretControllerFiredMsg",
+		"TurretControllerHeatChangedMsg",
+		"ctx.message_dispatcher.subscribe_to::<TurretControllerFiredMsg>(ctx.handle);",
+		"ctx.ecs.spawn((HeatTrail { heat: self.heat, ttl: 0.5 }, ShotOwner { node: self.muzzle }))",
+		"fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) {",
+		"if let Event::WindowEvent { event: WindowEvent::MouseButton(button), .. } = event {",
+		"fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) {",
+		"pub fn system_decay_heat_trails(world: &mut EcsWorld, ctx: &PluginContext) {",
+		"pub fn system_inspect_heat_trails(world: &mut EcsWorld, ctx: &PluginContext) {",
+	}
+	for _, m := range markers {
+		if !strings.Contains(out, m) {
+			t.Errorf("missing %q in output:\n%s", m, out)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/odvcencio/fyx/grammar"
@@ -145,6 +146,48 @@ fn helper() -> i32 {
 	}
 	if len(file.RustItems) != 2 {
 		t.Errorf("expected 2 rust items, got %d", len(file.RustItems))
+	}
+}
+
+func TestBuildRustOnlyModule(t *testing.T) {
+	l := lang(t)
+	source := []byte(`use fyrox::prelude::*;
+
+pub fn cool_heat(heat: f32, dt: f32) -> f32 {
+    if heat > dt {
+        heat - dt
+    } else {
+        0.0
+    }
+}
+
+pub struct ShotPlan {
+    pub spread: f32,
+}
+
+impl Default for ShotPlan {
+    fn default() -> Self {
+        Self { spread: 0.15 }
+    }
+}`)
+
+	file, err := BuildAST(l, source)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(file.RustItems) == 0 {
+		t.Fatal("expected rust items for rust-only file")
+	}
+
+	var joined []string
+	for _, item := range file.RustItems {
+		joined = append(joined, item.Source)
+	}
+	combined := strings.Join(joined, "\n")
+	for _, marker := range []string{"use fyrox::prelude::*;", "pub fn cool_heat", "pub struct ShotPlan", "impl Default for ShotPlan"} {
+		if !strings.Contains(combined, marker) {
+			t.Fatalf("missing %q in rust-only AST output:\n%s", marker, combined)
+		}
 	}
 }
 

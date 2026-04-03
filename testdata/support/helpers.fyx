@@ -1,0 +1,49 @@
+use fyrox::prelude::*;
+
+pub fn cool_heat(heat: f32, dt: f32) -> f32 {
+    if heat > dt {
+        heat - dt
+    } else {
+        0.0
+    }
+}
+
+pub fn spread_for_heat(heat: f32) -> f32 {
+    0.15 + (heat * 0.5)
+}
+
+pub fn aim_direction(node: &NodeRef) -> Vector3 {
+    node.look_direction().normalized()
+}
+
+pub struct ShotPlan {
+    pub spread: f32,
+}
+
+impl Clone for ShotPlan {
+    fn clone(&self) -> Self {
+        Self { spread: self.spread }
+    }
+}
+
+impl std::fmt::Debug for ShotPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShotPlan")
+            .field("spread", &self.spread)
+            .finish()
+    }
+}
+
+impl Default for ShotPlan {
+    fn default() -> Self {
+        Self { spread: 0.15 }
+    }
+}
+
+impl ShotPlan {
+    pub fn for_heat(heat: f32) -> Self {
+        Self {
+            spread: spread_for_heat(heat),
+        }
+    }
+}

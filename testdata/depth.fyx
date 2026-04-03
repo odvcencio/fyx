@@ -1,0 +1,120 @@
+import support.helpers
+
+use fyrox::prelude::*;
+
+fn target_visible(scene: &Scene, origin: Vector3, direction: Vector3, range: f32) -> bool {
+    scene.physics.raycast(origin, direction, range).next().is_some()
+}
+
+script TurretController {
+    inspect range: f32 = 18.0
+    inspect cooldown_time: f32 = 0.2
+    inspect turn_rate: f32 = 1.5
+
+    node pivot: Node = "Turret/Pivot"
+    node muzzle: Node = "Turret/Muzzle"
+
+    reactive heat: f32 = 0.0
+    derived overheated: bool = self.heat >= 1.0
+
+    signal fired(origin: Vector3, direction: Vector3)
+    signal heat_changed(value: f32)
+
+    plan: ShotPlan
+    shots_fired: i32
+    cooldown: f32
+
+    on init(ctx) {
+        self.plan = ShotPlan::for_heat(self.heat);
+    }
+
+    on start(ctx) {
+        self.cooldown = 0.0;
+    }
+
+    on update(ctx) {
+        self.cooldown -= dt;
+        self.heat = cool_heat(self.heat, dt);
+        self.plan = ShotPlan::for_heat(self.heat);
+
+        let origin = self.muzzle.global_position();
+        let direction = aim_direction(&ctx.scene.graph[self.muzzle]);
+
+        if self.cooldown <= 0.0 && !self.overheated && target_visible(&ctx.scene, origin, direction, self.range) {
+            emit fired(origin, direction);
+            self.cooldown = self.cooldown_time;
+            self.heat += 0.35;
+            emit heat_changed(self.heat);
+            self.shots_fired += 1;
+            let _heat_marker = ecs.spawn(
+                HeatTrail { heat: self.heat, ttl: 0.5 },
+                ShotOwner { node: self.muzzle },
+            );
+        }
+    }
+
+    on event(button: MouseButton, ctx) {
+        let _ = button;
+        self.pivot.rotate_y(self.turn_rate * 0.25);
+    }
+
+    on deinit(ctx) {
+        let _ = ctx.dt;
+        self.cooldown = 0.0;
+    }
+}
+
+script TurretHud {
+    node heat_bar: ProgressBar = "UI/HeatBar"
+    node status_label: Text = "UI/Status"
+
+    reactive visible_heat: f32 = 0.0
+    derived overheated: bool = self.visible_heat >= 1.0
+
+    connect TurretController::fired(origin, direction) {
+        let _ = (origin, direction);
+        self.heat_bar.set_value(self.visible_heat);
+    }
+
+    connect TurretController::heat_changed(value) {
+        self.visible_heat = *value;
+        self.heat_bar.set_value(*value);
+    }
+
+    watch self.overheated {
+        if self.overheated {
+            self.status_label.set_text("OVERHEATED");
+            self.status_label.set_color(Color::RED);
+        } else {
+            self.status_label.set_text("READY");
+        }
+    }
+
+    on message(message, ctx) {
+        let _ = (&mut *message, ctx.dt);
+    }
+}
+
+component HeatTrail {
+    heat: f32
+    ttl: f32
+}
+
+component ShotOwner {
+    node: Handle<Node>
+}
+
+system decay_heat_trails(dt: f32) {
+    query(entity: Entity, trail: &mut HeatTrail) {
+        trail.ttl -= dt;
+        if trail.ttl <= 0.0 {
+            despawn(entity);
+        }
+    }
+}
+
+system inspect_heat_trails {
+    query(trail: &HeatTrail, owner: &ShotOwner) {
+        let _ = (trail.heat, owner.node);
+    }
+}

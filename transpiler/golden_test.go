@@ -2,6 +2,7 @@ package transpiler
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/odvcencio/fyx/ast"
@@ -21,7 +22,7 @@ func goldenLang(t *testing.T) *gotreesitter.Language {
 }
 
 func TestGoldenFiles(t *testing.T) {
-	cases := []string{"minimal", "signals", "reactive", "ecs", "arbiter"}
+	cases := []string{"minimal", "signals", "reactive", "ecs", "arbiter", "depth"}
 	lang := goldenLang(t)
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -37,10 +38,22 @@ func TestGoldenFiles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build AST: %v", err)
 			}
-			got := TranspileFile(*file)
-			if got != string(expected) {
+			got := TranspileFileResult(*file, Options{
+				CurrentModule: ModulePathFromRelative(name + ".fyx"),
+				SignalIndex:   BuildSignalIndex([]ast.File{*file}),
+				SourcePath:    name + ".fyx",
+			}).Code
+			if normalizeGolden(got) != normalizeGolden(string(expected)) {
 				t.Errorf("golden mismatch for %s\n--- GOT ---\n%s\n--- WANT ---\n%s", name, got, string(expected))
 			}
 		})
 	}
+}
+
+func normalizeGolden(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " \t")
+	}
+	return strings.Join(lines, "\n")
 }

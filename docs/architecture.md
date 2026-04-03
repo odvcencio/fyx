@@ -13,6 +13,7 @@ Fyx is a source-preserving language layer over Rust, tuned for Fyrox-style gamep
    - ECS queries, despawn, and script-side `ecs.spawn(...)`
    - node/resource resolution
    - top-level import/module wiring
+   - rust-only helper modules preserved as authored Rust
 4. `fyxc build` writes:
    - generated `.rs`
    - `.fyxmap.json` line maps
@@ -25,6 +26,7 @@ Fyx is a source-preserving language layer over Rust, tuned for Fyrox-style gamep
 - Fyx sugar must lower deterministically to explicit Rust, not hidden runtime magic.
 - Errors should point back to authoring lines, not just generated code.
 - Cross-file projects must compile as normal Rust module trees.
+- A `.fyx` file that is pure Rust helper code should remain a first-class module, not a special case.
 
 ## Current Boundaries
 

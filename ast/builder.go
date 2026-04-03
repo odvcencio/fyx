@@ -39,7 +39,33 @@ func BuildAST(lang *gotreesitter.Language, source []byte) (*File, error) {
 			})
 		}
 	}
+
+	if len(file.Imports) == 0 &&
+		len(file.Scripts) == 0 &&
+		len(file.Components) == 0 &&
+		len(file.Systems) == 0 &&
+		looksLikeRustOnlyFile(root, lang) {
+		file.RustItems = []RustItem{{
+			Line:   1,
+			Source: string(bytes.TrimSpace(sanitized)),
+		}}
+	}
 	return file, nil
+}
+
+func looksLikeRustOnlyFile(root *gotreesitter.Node, lang *gotreesitter.Language) bool {
+	if root == nil || root.NamedChildCount() == 0 {
+		return false
+	}
+	for i := 0; i < root.NamedChildCount(); i++ {
+		switch root.NamedChild(i).Type(lang) {
+		case "_rust_keyword", "_nested_brace_block":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func sourceLine(n *gotreesitter.Node) int {
