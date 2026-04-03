@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/odvcencio/fyrox-lang/ast"
+	"github.com/odvcencio/fyx/ast"
 )
 
 // Options configures file transpilation in a project context.

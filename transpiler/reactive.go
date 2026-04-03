@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/odvcencio/fyrox-lang/ast"
+	"github.com/odvcencio/fyx/ast"
 )
 
 // ReactiveExtra describes a shadow field that must be added to the struct

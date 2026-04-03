@@ -4,10 +4,9 @@ import (
 	"github.com/odvcencio/gotreesitter/grammargen"
 )
 
-// FyroxScriptGrammar returns a grammar that extends Rust with
-// FyroxScript-specific productions: script, signal, component, system, etc.
-func FyroxScriptGrammar() *grammargen.Grammar {
-	g := grammargen.NewGrammar("fyroxscript")
+// FyxGrammar returns the Fyx grammar definition used by the compiler.
+func FyxGrammar() *grammargen.Grammar {
+	g := grammargen.NewGrammar("fyx")
 
 	// Top-level structure
 	g.Define("source_file", grammargen.Repeat(grammargen.Sym("_item")))
@@ -413,4 +412,9 @@ func FyroxScriptGrammar() *grammargen.Grammar {
 	g.SetExtras(grammargen.Pat(`\s`))
 
 	return g
+}
+
+// FyroxScriptGrammar is kept as a compatibility alias for the initial API.
+func FyroxScriptGrammar() *grammargen.Grammar {
+	return FyxGrammar()
 }

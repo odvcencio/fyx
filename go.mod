@@ -1,4 +1,4 @@
-module github.com/odvcencio/fyrox-lang
+module github.com/odvcencio/fyx
 
 go 1.25.1
 

@@ -10,7 +10,7 @@ import (
 
 func generateLang(t *testing.T) *gotreesitter.Language {
 	t.Helper()
-	g := FyroxScriptGrammar()
+	g := FyxGrammar()
 	lang, err := grammargen.GenerateLanguage(g)
 	if err != nil {
 		t.Fatalf("generate: %v", err)

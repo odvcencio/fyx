@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/fyrox-lang/ast"
+	"github.com/odvcencio/fyx/ast"
 )
 
 var despawnCallRe = regexp.MustCompile(`\bdespawn\s*\(`)

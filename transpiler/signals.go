@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/fyrox-lang/ast"
+	"github.com/odvcencio/fyx/ast"
 )
 
 // toPascalCase converts a snake_case or lowercase name to PascalCase.
@@ -33,7 +33,7 @@ func signalMsgName(scriptName, signalName string) string {
 
 // TranspileSignalStructs generates Rust message struct declarations for a script's signals.
 //
-// FyroxScript:
+// Fyx:
 //
 //	signal died(position: Vector3)
 //
@@ -69,7 +69,7 @@ func EmitSignalStructs(e *RustEmitter, scriptName string, signals []ast.Signal) 
 
 // TranspileConnectSubscriptions generates subscribe_to calls for on_start from connect blocks.
 //
-// FyroxScript:
+// Fyx:
 //
 //	connect Enemy::died(pos) { ... }
 //
@@ -91,7 +91,7 @@ func TranspileConnectSubscriptions(connects []ast.Connect) string {
 
 // TranspileConnectDispatch generates the on_message if-let chain for connect blocks.
 //
-// FyroxScript:
+// Fyx:
 //
 //	connect Enemy::died(pos) {
 //	    self.score += 100;
@@ -146,7 +146,7 @@ var emitPrefixRe = regexp.MustCompile(`emit\s+(\w+)\(`)
 
 // RewriteEmitStatements rewrites `emit` statements in handler bodies to Rust message sends.
 //
-// FyroxScript:
+// Fyx:
 //
 //	emit died(self.position())
 //	emit damaged(10.0, ctx.handle) to target

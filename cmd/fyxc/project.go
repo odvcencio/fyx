@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/odvcencio/fyrox-lang/ast"
-	"github.com/odvcencio/fyrox-lang/grammar"
-	"github.com/odvcencio/fyrox-lang/transpiler"
+	"github.com/odvcencio/fyx/ast"
+	"github.com/odvcencio/fyx/grammar"
+	"github.com/odvcencio/fyx/transpiler"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammargen"
 )
@@ -108,7 +108,7 @@ func collectFyxFiles(root string) ([]string, error) {
 }
 
 func generateLanguage() (*gotreesitter.Language, error) {
-	return grammargen.GenerateLanguage(grammar.FyroxScriptGrammar())
+	return grammargen.GenerateLanguage(grammar.FyxGrammar())
 }
 
 func buildAST(lang *gotreesitter.Language, source []byte) (*ast.File, error) {

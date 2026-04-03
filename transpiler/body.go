@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/fyrox-lang/ast"
+	"github.com/odvcencio/fyx/ast"
 )
 
 // spawnRe matches `spawn EXPR at EXPR` patterns, capturing the resource expression
@@ -13,7 +13,7 @@ var spawnRe = regexp.MustCompile(`spawn\s+(\S+)\s+at\s+(.+)`)
 var shorthandDtRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])dt\b`)
 var ecsSpawnPrefixRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])ecs\s*\.\s*spawn\s*\(`)
 
-// RewriteBody transforms FyroxScript shortcuts in handler bodies to valid Rust.
+// RewriteBody transforms Fyx shortcuts in handler bodies to valid Rust.
 //
 // Self-node shortcuts:
 //   - self.position()  → ctx.scene.graph[ctx.handle].global_position()

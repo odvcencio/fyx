@@ -1,0 +1,31 @@
+source npc_senses {
+    path sensor://vision
+}
+
+worker decide_directive {
+    input ThreatOutcome
+    output NpcDirective
+    exec "npc-directive"
+}
+
+rule PlayerDetected {
+    when distance_to_player < 8.0
+    then threat_high
+}
+
+arbiter npc_brain {
+    poll every_frame
+    use_worker decide_directive
+}
+
+component ThreatMarker {
+    active: bool
+}
+
+script NpcBrain {
+    on update(ctx) {
+        let spawned = ecs.spawn(
+            ThreatMarker { active: true },
+        );
+    }
+}

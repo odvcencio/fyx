@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/odvcencio/fyrox-lang/ast"
+	"github.com/odvcencio/fyx/ast"
 )
 
 // TranspileScript takes an AST Script and returns the corresponding Rust source code.

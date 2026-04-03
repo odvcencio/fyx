@@ -1,13 +1,13 @@
-package fyroxlang_test
+package fyx_test
 
 import (
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/odvcencio/fyrox-lang/ast"
-	"github.com/odvcencio/fyrox-lang/grammar"
-	"github.com/odvcencio/fyrox-lang/transpiler"
+	"github.com/odvcencio/fyx/ast"
+	"github.com/odvcencio/fyx/grammar"
+	"github.com/odvcencio/fyx/transpiler"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammargen"
 )
@@ -20,7 +20,7 @@ func TestEndToEndFullExample(t *testing.T) {
 	}
 
 	// Generate language
-	g := grammar.FyroxScriptGrammar()
+	g := grammar.FyxGrammar()
 	lang, err := grammargen.GenerateLanguage(g)
 	if err != nil {
 		t.Fatalf("generate grammar: %v", err)

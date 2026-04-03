@@ -3,14 +3,14 @@ package ast
 import (
 	"testing"
 
-	"github.com/odvcencio/fyrox-lang/grammar"
+	"github.com/odvcencio/fyx/grammar"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammargen"
 )
 
 func lang(t *testing.T) *gotreesitter.Language {
 	t.Helper()
-	g := grammar.FyroxScriptGrammar()
+	g := grammar.FyxGrammar()
 	l, err := grammargen.GenerateLanguage(g)
 	if err != nil {
 		t.Fatalf("generate: %v", err)

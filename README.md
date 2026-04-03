@@ -1,8 +1,22 @@
 # Fyx
 
+[![CI](https://github.com/odvcencio/fyx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/odvcencio/fyx/actions/workflows/ci.yml)
+
 Fyx is a ferrous scripting language for Fyrox.
 
 It keeps the Rust escape hatch fully open, but adds engine-native authoring sugar for scripts, signals, reactive state, and ECS. `.fyx` files transpile to ordinary Rust modules, so the output still flows through the normal cargo toolchain instead of hiding inside a bespoke runtime.
+
+## Quick Start
+
+```bash
+git clone git@github.com:odvcencio/fyx.git
+cd fyx
+go install github.com/odvcencio/fyx/cmd/fyxc@latest
+go test ./...
+cd runtime && cargo test && cd ..
+go run ./cmd/fyxc check testdata --cargo-check
+go run ./cmd/fyxc build testdata --out generated
+```
 
 ## Why it’s interesting
 
@@ -104,8 +118,24 @@ go run ./cmd/fyxc build testdata --out generated
 
 `fyxc build` now also writes `.arb` sidecars for any preserved Arbiter declarations alongside the generated `.rs` and `.fyxmap.json` files.
 
+## Project Layout
+
+- `grammar/`: syntax definition
+- `ast/`: CST-to-AST extraction and source preservation
+- `transpiler/`: Rust lowering and sugar rewrites
+- `cmd/fyxc/`: compiler CLI and validation harness
+- `runtime/`: Rust runtime crate
+- `examples/`: small authoring examples
+- `queries/` and `editors/`: editor-facing assets
+
+## Docs
+
+- [Architecture](docs/architecture.md)
+- [Contributing](CONTRIBUTING.md)
+- [Examples](examples/README.md)
+
 ## Naming
 
 The public-facing name is `Fyx`.
 
-The codebase still uses a few internal `fyroxscript` identifiers for the grammar package and historical docs. That can be normalized later without changing the external story: Fyx is the language, `fyxc` is the compiler, and `fyx-runtime` is the runtime crate.
+The public surface is `Fyx`, `fyxc`, and `fyx-runtime`. The grammar package now exposes `grammar.FyxGrammar()` and keeps the older `FyroxScriptGrammar()` name only as a compatibility alias.
