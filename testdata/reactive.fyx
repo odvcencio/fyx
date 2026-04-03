@@ -1,0 +1,8 @@
+script HUD {
+    reactive health: f32 = 100.0
+    derived is_critical: bool = self.health < 20.0
+
+    watch self.is_critical {
+        println!("critical!");
+    }
+}

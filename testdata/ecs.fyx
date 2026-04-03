@@ -1,0 +1,24 @@
+component Velocity {
+    linear: Vector3
+    angular: Vector3
+}
+
+component Projectile {
+    damage: f32
+    lifetime: f32
+}
+
+system move_things(dt: f32) {
+    query(pos: &mut Transform, vel: &Velocity) {
+        pos.translate(vel.linear * dt);
+    }
+}
+
+system expire(dt: f32) {
+    query(entity: Entity, proj: &mut Projectile) {
+        proj.lifetime -= dt;
+        if proj.lifetime <= 0.0 {
+            despawn(entity);
+        }
+    }
+}

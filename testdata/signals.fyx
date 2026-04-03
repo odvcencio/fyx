@@ -1,0 +1,20 @@
+script Enemy {
+    inspect health: f32 = 100.0
+
+    signal died(position: Vector3)
+    signal damaged(amount: f32)
+
+    on update(ctx) {
+        if self.health <= 0.0 {
+            emit died(self.position());
+        }
+    }
+}
+
+script ScoreTracker {
+    inspect score: i32 = 0
+
+    connect Enemy::died(pos) {
+        self.score += 100;
+    }
+}

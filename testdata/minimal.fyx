@@ -1,0 +1,8 @@
+script Player {
+    inspect speed: f32 = 10.0
+    inspect health: f32 = 100.0
+
+    on update(ctx) {
+        self.speed += 1.0;
+    }
+}
