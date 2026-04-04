@@ -44,8 +44,8 @@ func TestEndToEndFullExample(t *testing.T) {
 	}
 
 	// Verify AST structure
-	if len(file.Scripts) != 2 {
-		t.Errorf("expected 2 scripts, got %d", len(file.Scripts))
+	if len(file.Scripts) != 3 {
+		t.Errorf("expected 3 scripts, got %d", len(file.Scripts))
 	}
 	if len(file.Components) != 2 {
 		t.Errorf("expected 2 components, got %d", len(file.Components))
@@ -63,6 +63,8 @@ func TestEndToEndFullExample(t *testing.T) {
 		"impl ScriptTrait for Weapon",
 		"struct WeaponHUD",
 		"impl ScriptTrait for WeaponHUD",
+		"struct Damageable",
+		"impl ScriptTrait for Damageable",
 		"struct Projectile",
 		"struct Velocity",
 		"fn system_move_projectiles",
@@ -70,6 +72,11 @@ func TestEndToEndFullExample(t *testing.T) {
 		"fn system_projectile_hits",
 		"WeaponFiredMsg",
 		"WeaponEmptiedMsg",
+		"DamageableDamagedMsg",
+		"ctx.scene.physics.raycast",
+		"send_to_target(hit.node, DamageableDamagedMsg",
+		"ctx.scene.graph[projectile].global_position()",
+		"ctx.scene.graph[owner].global_position()",
 		"register_scripts",
 		"run_ecs_systems",
 		"subscribe_to",

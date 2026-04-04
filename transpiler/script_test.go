@@ -170,8 +170,8 @@ func TestTranspileScriptNodeField(t *testing.T) {
 	if !strings.Contains(out, "fn on_start") {
 		t.Errorf("node field should generate on_start: %s", out)
 	}
-	if !strings.Contains(out, "find_by_name_from_root(\"MainCamera\")") {
-		t.Errorf("missing find_by_name_from_root: %s", out)
+	if !strings.Contains(out, `fyx_find_node_path(&ctx.scene.graph, "MainCamera")`) {
+		t.Errorf("missing path helper lookup: %s", out)
 	}
 }
 

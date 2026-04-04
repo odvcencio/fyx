@@ -33,18 +33,25 @@ func resolutionLinesForField(f ast.Field) []string {
 	switch f.Modifier {
 	case ast.FieldNode:
 		name := unquote(f.Default)
+		resolve := fmt.Sprintf("fyx_find_node_path(&ctx.scene.graph, \"%s\")", name)
+		if !nodeFieldNeedsTypeValidation(f) {
+			return []string{
+				fmt.Sprintf("self.%s = %s;", f.Name, resolve),
+			}
+		}
 		return []string{
-			fmt.Sprintf("self.%s = ctx.scene.graph.find_by_name_from_root(\"%s\")", f.Name, name),
-			"    .map(|(h, _)| h)",
-			"    .unwrap_or_default();",
+			fmt.Sprintf("self.%s = fyx_expect_node_type::<%s>(&ctx.scene.graph, %s, \"%s\", \"%s\");", f.Name, f.TypeExpr, resolve, name, f.TypeExpr),
 		}
 	case ast.FieldNodes:
 		pattern := unquote(f.Default)
+		resolve := fmt.Sprintf("fyx_find_nodes_path(&ctx.scene.graph, \"%s\")", pattern)
+		if !nodeFieldNeedsTypeValidation(f) {
+			return []string{
+				fmt.Sprintf("self.%s = %s;", f.Name, resolve),
+			}
+		}
 		return []string{
-			fmt.Sprintf("self.%s = ctx.scene.graph.find_by_name_from_root(\"%s\")", f.Name, pattern),
-			"    .map(|(h, _)| h)",
-			"    .into_iter()",
-			"    .collect();",
+			fmt.Sprintf("self.%s = fyx_expect_nodes_type::<%s>(&ctx.scene.graph, %s, \"%s\", \"%s\");", f.Name, f.TypeExpr, resolve, pattern, f.TypeExpr),
 		}
 	case ast.FieldResource:
 		path := strings.TrimPrefix(unquote(f.Default), "res://")
@@ -54,6 +61,14 @@ func resolutionLinesForField(f ast.Field) []string {
 	default:
 		return nil
 	}
+}
+
+func nodeFieldNeedsTypeValidation(f ast.Field) bool {
+	if f.Modifier != ast.FieldNode && f.Modifier != ast.FieldNodes {
+		return false
+	}
+	typ := strings.TrimSpace(f.TypeExpr)
+	return typ != "" && typ != "Node"
 }
 
 // nodeFieldRustType returns the Rust type for a node/nodes/resource field.

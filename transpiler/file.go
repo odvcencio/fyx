@@ -35,6 +35,9 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 	if len(opts.SignalIndex) == 0 {
 		opts.SignalIndex = BuildSignalIndex([]ast.File{file})
 	}
+	if len(opts.ComponentHandleIndex) == 0 {
+		opts.ComponentHandleIndex = BuildComponentHandleIndex([]ast.File{file})
+	}
 
 	hasSection := false
 	emitSectionBreak := func() {
@@ -47,8 +50,15 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 
 	if needsGeneratedPrelude(file) {
 		emitSectionBreak()
-		for _, line := range generatedPreludeLines() {
+		needNodeHelpers := needsNodePathHelpers(file)
+		for _, line := range generatedPreludeLines(needNodeHelpers) {
 			e.LineWithSource(line, generatedPreludeLine(file))
+		}
+		if needNodeHelpers {
+			e.Blank()
+			for _, line := range generatedNodePathHelperLines() {
+				e.LineWithSource(line, generatedPreludeLine(file))
+			}
 		}
 	}
 
@@ -97,7 +107,7 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 	if len(file.Systems) > 0 {
 		for _, s := range file.Systems {
 			emitSectionBreak()
-			EmitSystem(e, s)
+			EmitSystem(e, s, opts)
 		}
 		emitSectionBreak()
 		EmitSystemRunner(e, file.Systems)
@@ -157,17 +167,15 @@ func augmentHandlers(s ast.Script, original ast.Script, opts Options) ast.Script
 	subscriptionCode := TranspileConnectSubscriptions(original.Connects)
 
 	// Signal dispatch for on_message
-	dispatchCode := TranspileConnectDispatch(original.Connects, opts.SignalIndex)
+	dispatchCode := TranspileConnectDispatch(original.Connects, original.Name, original.Fields, opts.SignalIndex)
 
-	// Rewrite emit statements in all handler bodies
-	if len(original.Signals) > 0 {
-		for i := range result.Handlers {
-			result.Handlers[i].Body = RewriteEmitStatements(
-				result.Handlers[i].Body,
-				original.Name,
-				original.Signals,
-			)
-		}
+	// Rewrite emit statements in all handler bodies using the project signal index
+	for i := range result.Handlers {
+		result.Handlers[i].Body = RewriteEmitStatements(
+			result.Handlers[i].Body,
+			original.Name,
+			opts.SignalIndex,
+		)
 	}
 
 	// Integrate reactive code into on_update
@@ -274,6 +282,18 @@ func needsGeneratedPrelude(file ast.File) bool {
 	return len(file.Scripts) > 0 || len(file.Systems) > 0
 }
 
+func needsNodePathHelpers(file ast.File) bool {
+	for _, script := range file.Scripts {
+		for _, field := range script.Fields {
+			switch field.Modifier {
+			case ast.FieldNode, ast.FieldNodes:
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func generatedPreludeLine(file ast.File) int {
 	for _, line := range []int{
 		firstImportLine(file),
@@ -316,9 +336,8 @@ func firstSystemLine(file ast.File) int {
 	return file.Systems[0].Line
 }
 
-func generatedPreludeLines() []string {
-	var lines []string
-	for _, useLine := range []string{
+func generatedPreludeLines(includeNodeGraphImports bool) []string {
+	useLines := []string{
 		"use fyrox::asset::Resource;",
 		"use fyrox::core::pool::Handle;",
 		"use fyrox::core::reflect::prelude::*;",
@@ -330,9 +349,88 @@ func generatedPreludeLines() []string {
 		"use fyrox::resource::model::Model;",
 		"use fyrox::scene::node::Node;",
 		"use fyrox::script::{ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload, ScriptTrait};",
-	} {
+	}
+	if includeNodeGraphImports {
+		useLines = append(useLines,
+			"use fyrox::graph::SceneGraph;",
+			"use fyrox::scene::graph::Graph;",
+		)
+	}
+	var lines []string
+	for _, useLine := range useLines {
 		lines = append(lines, "#[allow(unused_imports)]")
 		lines = append(lines, useLine)
 	}
 	return lines
+}
+
+func generatedNodePathHelperLines() []string {
+	return []string{
+		"fn fyx_find_node_path(graph: &Graph, path: &str) -> Handle<Node> {",
+		"    let parts = path",
+		"        .split('/')",
+		"        .filter(|segment| !segment.is_empty())",
+		"        .collect::<Vec<_>>();",
+		"    if parts.is_empty() {",
+		"        panic!(\"Fyx node path is empty\");",
+		"    };",
+		"    if parts.len() == 1 {",
+		"        return graph",
+		"            .find_by_name_from_root(parts[0])",
+		"            .map(|(handle, _)| handle)",
+		"            .unwrap_or_else(|| panic!(\"Fyx node path not found: {}\", path));",
+		"    }",
+		"    let Some((mut current, _)) = graph.find_by_name_from_root(parts[0]) else {",
+		"        panic!(\"Fyx node path not found: {}\", path);",
+		"    };",
+		"    for segment in parts.iter().skip(1) {",
+		"        let current_node = graph",
+		"            .try_get_node(current)",
+		"            .unwrap_or_else(|_| panic!(\"Fyx node path not found: {}\", path));",
+		"        let Some(next) = current_node.children().iter().copied().find(|child| {",
+		"            graph",
+		"                .try_get_node(*child)",
+		"                .map(|node| node.name() == *segment)",
+		"                .unwrap_or(false)",
+		"        }) else {",
+		"            panic!(\"Fyx node path not found: {}\", path);",
+		"        };",
+		"        current = next;",
+		"    }",
+		"    current",
+		"}",
+		"",
+		"fn fyx_expect_node_type<T>(graph: &Graph, handle: Handle<Node>, path: &str, expected_type: &str) -> Handle<Node> {",
+		"    if graph.try_get_of_type::<T>(handle).is_err() {",
+		"        panic!(\"Fyx node path '{}' did not resolve to expected type {}\", path, expected_type);",
+		"    }",
+		"    handle",
+		"}",
+		"",
+		"fn fyx_expect_nodes_type<T>(graph: &Graph, handles: Vec<Handle<Node>>, path: &str, expected_type: &str) -> Vec<Handle<Node>> {",
+		"    for handle in &handles {",
+		"        if graph.try_get_of_type::<T>(*handle).is_err() {",
+		"            panic!(\"Fyx node path '{}' did not resolve to expected type {}\", path, expected_type);",
+		"        }",
+		"    }",
+		"    handles",
+		"}",
+		"",
+		"fn fyx_find_nodes_path(graph: &Graph, pattern: &str) -> Vec<Handle<Node>> {",
+		"    if let Some(parent_path) = pattern.strip_suffix(\"/*\") {",
+		"        if parent_path.is_empty() {",
+		"            return graph",
+		"                .try_get_node(graph.root())",
+		"                .map(|node| node.children().to_vec())",
+		"                .unwrap_or_else(|_| panic!(\"Fyx node path not found: {}\", pattern));",
+		"        }",
+		"        let parent = fyx_find_node_path(graph, parent_path);",
+		"        return graph",
+		"            .try_get_node(parent)",
+		"            .map(|node| node.children().to_vec())",
+		"            .unwrap_or_else(|_| panic!(\"Fyx node path not found: {}\", pattern));",
+		"    }",
+		"    vec![fyx_find_node_path(graph, pattern)]",
+		"}",
+	}
 }

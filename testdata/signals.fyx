@@ -17,4 +17,8 @@ script ScoreTracker {
     connect Enemy::died(pos) {
         self.score += 100;
     }
+
+    on update(ctx) {
+        emit Enemy::damaged(amount: 1.0) to ctx.handle;
+    }
 }

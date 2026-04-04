@@ -148,7 +148,7 @@ func TestTranspileConnectDispatch(t *testing.T) {
 	index := SignalIndex{
 		signalIndexKey("Enemy", "died"): []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
 	}
-	out := TranspileConnectDispatch(connects, index)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, index)
 	if !strings.Contains(out, "if let Some(msg) = message.downcast_ref::<EnemyDiedMsg>()") {
 		t.Errorf("missing if-let downcast: %s", out)
 	}
@@ -169,7 +169,7 @@ func TestTranspileConnectDispatchMultiple(t *testing.T) {
 		signalIndexKey("Enemy", "died"):            []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
 		signalIndexKey("Player", "health_changed"): []ast.Param{{Name: "health", TypeExpr: "f32"}},
 	}
-	out := TranspileConnectDispatch(connects, index)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, index)
 	if !strings.Contains(out, "downcast_ref::<EnemyDiedMsg>()") {
 		t.Errorf("missing EnemyDiedMsg dispatch: %s", out)
 	}
@@ -191,7 +191,7 @@ func TestTranspileConnectDispatchMultiple(t *testing.T) {
 }
 
 func TestTranspileConnectDispatchEmpty(t *testing.T) {
-	out := TranspileConnectDispatch(nil, nil)
+	out := TranspileConnectDispatch(nil, "Tracker", nil, nil)
 	if out != "" {
 		t.Errorf("expected empty output for no connects, got: %q", out)
 	}
@@ -212,7 +212,7 @@ func TestTranspileConnectDispatchMultipleParams(t *testing.T) {
 			{Name: "source", TypeExpr: "Handle<Node>"},
 		},
 	}
-	out := TranspileConnectDispatch(connects, index)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, index)
 	if !strings.Contains(out, "let amount = &msg.amount;") {
 		t.Errorf("missing amount binding: %s", out)
 	}
@@ -225,35 +225,58 @@ func TestTranspileConnectDispatchFallsBackToBindingNames(t *testing.T) {
 	connects := []ast.Connect{
 		{ScriptName: "Enemy", SignalName: "died", Params: []string{"pos"}, Body: "self.score += 100;"},
 	}
-	out := TranspileConnectDispatch(connects, nil)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, nil)
 	if !strings.Contains(out, "let pos = &msg.pos;") {
 		t.Errorf("expected fallback bind to use local name, got: %s", out)
 	}
 }
 
+func TestTranspileConnectDispatchRewritesFyxBodySugar(t *testing.T) {
+	connects := []ast.Connect{
+		{
+			ScriptName: "Enemy",
+			SignalName: "died",
+			Params:     []string{"pos"},
+			Body: `self.flash.set_visibility(false);
+emit flashed(self.position());`,
+		},
+	}
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "flash"},
+	}
+	index := SignalIndex{
+		signalIndexKey("Enemy", "died"):      []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
+		signalIndexKey("Tracker", "flashed"): []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
+	}
+	out := TranspileConnectDispatch(connects, "Tracker", fields, index)
+	if !strings.Contains(out, "ctx.scene.graph[self.flash].set_visibility(false);") {
+		t.Fatalf("connect body should rewrite node field access: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_sender.send_global(TrackerFlashedMsg { position: ctx.scene.graph[ctx.handle].global_position() });") {
+		t.Fatalf("connect body should rewrite emit and self.position(): %s", out)
+	}
+}
+
 func TestRewriteEmitGlobal(t *testing.T) {
-	signals := []ast.Signal{
-		{Name: "died", Params: []ast.Param{{Name: "position", TypeExpr: "Vector3"}}},
+	index := SignalIndex{
+		signalIndexKey("Enemy", "died"): []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
 	}
 	body := "emit died(self.position());"
-	out := RewriteEmitStatements(body, "Enemy", signals)
+	out := RewriteEmitStatements(body, "Enemy", index)
 	if !strings.Contains(out, "ctx.message_sender.send_global(EnemyDiedMsg { position: self.position() });") {
 		t.Errorf("emit not rewritten correctly: %s", out)
 	}
 }
 
 func TestRewriteEmitTargeted(t *testing.T) {
-	signals := []ast.Signal{
-		{
-			Name: "damaged",
-			Params: []ast.Param{
-				{Name: "amount", TypeExpr: "f32"},
-				{Name: "source", TypeExpr: "Handle<Node>"},
-			},
+	index := SignalIndex{
+		signalIndexKey("Enemy", "damaged"): []ast.Param{
+			{Name: "amount", TypeExpr: "f32"},
+			{Name: "source", TypeExpr: "Handle<Node>"},
 		},
 	}
 	body := "emit damaged(10.0, ctx.handle) to target;"
-	out := RewriteEmitStatements(body, "Enemy", signals)
+	out := RewriteEmitStatements(body, "Enemy", index)
 	if !strings.Contains(out, "ctx.message_sender.send_to_target(target, EnemyDamagedMsg { amount: 10.0, source: ctx.handle });") {
 		t.Errorf("targeted emit not rewritten correctly: %s", out)
 	}
@@ -268,17 +291,44 @@ func TestRewriteEmitNoSignals(t *testing.T) {
 }
 
 func TestRewriteEmitMultiple(t *testing.T) {
-	signals := []ast.Signal{
-		{Name: "died", Params: []ast.Param{{Name: "position", TypeExpr: "Vector3"}}},
-		{Name: "damaged", Params: []ast.Param{{Name: "amount", TypeExpr: "f32"}}},
+	index := SignalIndex{
+		signalIndexKey("Enemy", "died"):    []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
+		signalIndexKey("Enemy", "damaged"): []ast.Param{{Name: "amount", TypeExpr: "f32"}},
 	}
 	body := "emit died(pos);\nemit damaged(10.0);"
-	out := RewriteEmitStatements(body, "Enemy", signals)
+	out := RewriteEmitStatements(body, "Enemy", index)
 	if !strings.Contains(out, "send_global(EnemyDiedMsg { position: pos })") {
 		t.Errorf("first emit not rewritten: %s", out)
 	}
 	if !strings.Contains(out, "send_global(EnemyDamagedMsg { amount: 10.0 })") {
 		t.Errorf("second emit not rewritten: %s", out)
+	}
+}
+
+func TestRewriteEmitQualifiedSignal(t *testing.T) {
+	index := SignalIndex{
+		signalIndexKey("Enemy", "damaged"): []ast.Param{
+			{Name: "amount", TypeExpr: "f32"},
+		},
+	}
+	body := "emit Enemy::damaged(10.0);"
+	out := RewriteEmitStatements(body, "ScoreTracker", index)
+	if !strings.Contains(out, "ctx.message_sender.send_global(EnemyDamagedMsg { amount: 10.0 });") {
+		t.Errorf("qualified emit not rewritten correctly: %s", out)
+	}
+}
+
+func TestRewriteEmitQualifiedSignalWithNamedArgs(t *testing.T) {
+	index := SignalIndex{
+		signalIndexKey("Enemy", "damaged"): []ast.Param{
+			{Name: "amount", TypeExpr: "f32"},
+			{Name: "source", TypeExpr: "Handle<Node>"},
+		},
+	}
+	body := "emit Enemy::damaged(amount: 10.0, source: ctx.handle) to target;"
+	out := RewriteEmitStatements(body, "ScoreTracker", index)
+	if !strings.Contains(out, "ctx.message_sender.send_to_target(target, EnemyDamagedMsg { amount: 10.0, source: ctx.handle });") {
+		t.Errorf("qualified named emit not rewritten correctly: %s", out)
 	}
 }
 

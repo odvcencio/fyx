@@ -3,8 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWriteOutputTreePreservesModules(t *testing.T) {
@@ -147,5 +149,69 @@ arbiter npc_brain {
 	}
 	if !strings.Contains(string(arbOut), "worker decide_directive") || !strings.Contains(string(arbOut), "arbiter npc_brain") {
 		t.Fatalf("unexpected arbiter sidecar:\n%s", string(arbOut))
+	}
+}
+
+func TestParseArgsAcceptsWatchFlag(t *testing.T) {
+	cmd, flagArgs, posArgs := parseArgs([]string{"build", "--watch", "--cargo-check", "testdata"})
+	if cmd != "build" {
+		t.Fatalf("unexpected command: %q", cmd)
+	}
+	if !slices.Contains(flagArgs, "--watch") {
+		t.Fatalf("expected --watch in flag args, got %v", flagArgs)
+	}
+	if !slices.Equal(posArgs, []string{"testdata"}) {
+		t.Fatalf("unexpected positional args: %v", posArgs)
+	}
+}
+
+func TestScanProjectSnapshotDetectsEditsAddsAndDeletes(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first.fyx")
+	if err := os.WriteFile(first, []byte("script First {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := scanProjectSnapshot(root)
+	if err != nil {
+		t.Fatalf("scanProjectSnapshot before: %v", err)
+	}
+
+	if err := os.WriteFile(first, []byte("script First { value: i32 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	edited, err := scanProjectSnapshot(root)
+	if err != nil {
+		t.Fatalf("scanProjectSnapshot edited: %v", err)
+	}
+	if sameProjectSnapshot(before, edited) {
+		t.Fatal("expected edited snapshot to differ")
+	}
+
+	second := filepath.Join(root, "second.fyx")
+	if err := os.WriteFile(second, []byte("script Second {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	added, err := scanProjectSnapshot(root)
+	if err != nil {
+		t.Fatalf("scanProjectSnapshot added: %v", err)
+	}
+	if sameProjectSnapshot(edited, added) {
+		t.Fatal("expected added snapshot to differ")
+	}
+
+	if err := os.Remove(second); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := scanProjectSnapshot(root)
+	if err != nil {
+		t.Fatalf("scanProjectSnapshot deleted: %v", err)
+	}
+	if sameProjectSnapshot(added, deleted) {
+		t.Fatal("expected deleted snapshot to differ")
 	}
 }

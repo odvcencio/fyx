@@ -33,9 +33,6 @@ pub struct HUD {
     #[reflect(hidden)]
     #[visit(skip)]
     _health_prev: f32,
-    #[reflect(hidden)]
-    #[visit(skip)]
-    _is_critical_prev: bool,
 }
 
 impl Default for HUD {
@@ -44,11 +41,9 @@ impl Default for HUD {
             health: 100.0,
             is_critical: Default::default(),
             _health_prev: Default::default(),
-            _is_critical_prev: Default::default(),
         };
-        value._health_prev = value.health.clone();
         value.is_critical = value.health < 20.0;
-        value._is_critical_prev = value.is_critical.clone();
+        value._health_prev = value.health.clone();
         value
     }
 }
@@ -57,14 +52,23 @@ impl ScriptTrait for HUD {
     #[allow(unused_variables)]
     fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {
         {
-            self.is_critical = self.health < 20.0;
+            let _fyx_health_changed = self.health != self._health_prev;
             
-            if self.is_critical != self._is_critical_prev {
+            let _fyx_is_critical_changed = if _fyx_health_changed {
+                let _fyx_is_critical_prev = self.is_critical.clone();
+                self.is_critical = self.health < 20.0;
+                self.is_critical != _fyx_is_critical_prev
+            } else {
+                false
+            };
+            
+            if _fyx_is_critical_changed {
                 println!("critical!");
-                self._is_critical_prev = self.is_critical.clone();
             }
             
-            self._health_prev = self.health.clone();
+            if _fyx_health_changed {
+                self._health_prev = self.health.clone();
+            }
         };
         Ok(())
     }

@@ -11,6 +11,7 @@ func TestRewriteSelfShortcuts(t *testing.T) {
 	body := `let pos = self.position();
 let fwd = self.forward();
 let p = self.parent();
+self.parent().script::<Weapon>();
 self.node.rotate_y(0.5);`
 
 	out := RewriteBody(body, "MyScript", nil, ast.HandlerUpdate)
@@ -22,6 +23,9 @@ self.node.rotate_y(0.5);`
 	}
 	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].parent()") {
 		t.Errorf("self.parent() not rewritten: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[ctx.scene.graph[ctx.handle].parent()].script::<Weapon>()") {
+		t.Errorf("self.parent().script::<T>() not rewritten: %s", out)
 	}
 	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].set_rotation_y(0.5)") {
 		t.Errorf("self.node not rewritten: %s", out)
@@ -60,11 +64,41 @@ func TestRewriteStandaloneNode(t *testing.T) {
 func TestRewriteSpawnPosition(t *testing.T) {
 	body := `spawn self.prefab at pos;`
 	out := RewriteBody(body, "Test", nil, ast.HandlerUpdate)
+	if !strings.Contains(out, "let _resource = ctx.resource_manager.request::<Model>(self.prefab.clone());") {
+		t.Errorf("spawn should request model paths through the resource manager: %s", out)
+	}
 	if !strings.Contains(out, "set_position(pos)") {
 		t.Errorf("spawn at position not correctly extracted: %s", out)
 	}
 	if !strings.Contains(out, "self.prefab.clone()") {
 		t.Errorf("spawn resource not correctly extracted: %s", out)
+	}
+}
+
+func TestRewriteSpawnLoadedModelResourceField(t *testing.T) {
+	body := `let goblin = spawn self.prefab at pos;`
+	fields := []ast.Field{
+		{Modifier: ast.FieldResource, Name: "prefab", TypeExpr: "Model"},
+	}
+
+	out := RewriteBody(body, "Spawner", fields, ast.HandlerUpdate)
+	if !strings.Contains(out, `let _resource = self.prefab.clone().expect("Fyx resource field 'prefab' was not loaded before spawn");`) {
+		t.Errorf("model resource fields should spawn from the loaded resource: %s", out)
+	}
+	if !strings.Contains(out, "_resource.instantiate(&mut ctx.scene.graph)") {
+		t.Errorf("loaded model resource should instantiate directly: %s", out)
+	}
+	if strings.Contains(out, "request::<Model>(self.prefab.clone())") {
+		t.Errorf("loaded model resource should not be re-requested: %s", out)
+	}
+}
+
+func TestRewriteSpawnPreservesStatementBoundary(t *testing.T) {
+	body := `let goblin = spawn self.prefab at pos;
+let after = 1;`
+	out := RewriteBody(body, "Spawner", nil, ast.HandlerUpdate)
+	if !strings.Contains(out, "_inst };\nlet after = 1;") {
+		t.Errorf("spawn rewrite should preserve the original statement terminator: %s", out)
 	}
 }
 
@@ -79,7 +113,10 @@ self.name = "goblin".to_string();`
 
 func TestRewriteNodeFieldMethods(t *testing.T) {
 	body := `self.flash.set_visibility(false);
-let pos = self.muzzle.global_position();`
+let muzzle = &self.muzzle.node();
+let pos = self.muzzle.position();
+let dir = self.muzzle.forward();
+let parent = self.flash.parent();`
 	fields := []ast.Field{
 		{Modifier: ast.FieldNode, Name: "flash"},
 		{Modifier: ast.FieldNode, Name: "muzzle"},
@@ -89,8 +126,62 @@ let pos = self.muzzle.global_position();`
 	if !strings.Contains(out, "ctx.scene.graph[self.flash].set_visibility(false)") {
 		t.Errorf("node field method not rewritten: %s", out)
 	}
+	if !strings.Contains(out, "&ctx.scene.graph[self.muzzle]") {
+		t.Errorf("node field node() shortcut not rewritten: %s", out)
+	}
 	if !strings.Contains(out, "ctx.scene.graph[self.muzzle].global_position()") {
-		t.Errorf("node field access not rewritten: %s", out)
+		t.Errorf("node field position shortcut not rewritten: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[self.muzzle].look_vector()") {
+		t.Errorf("node field forward shortcut not rewritten: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[self.flash].parent()") {
+		t.Errorf("node field parent shortcut not rewritten: %s", out)
+	}
+}
+
+func TestRewriteHandleVariableNodeAndScriptSugar(t *testing.T) {
+	body := `let enemy = goblin.script::<Enemy>();
+let enemy_node = goblin.node();`
+	out := RewriteBody(body, "Spawner", nil, ast.HandlerUpdate)
+	if !strings.Contains(out, "let enemy = ctx.scene.graph[goblin].script::<Enemy>();") {
+		t.Errorf("handle variable script::<T>() shortcut not rewritten: %s", out)
+	}
+	if !strings.Contains(out, "let enemy_node = ctx.scene.graph[goblin];") {
+		t.Errorf("handle variable node() shortcut not rewritten: %s", out)
+	}
+}
+
+func TestRewriteHandleAliasesFromNodeFieldsAndSpawn(t *testing.T) {
+	body := `let muzzle = self.muzzle;
+let origin = muzzle.position();
+let parent = muzzle.parent();
+if let Some(weapon) = parent.script::<Weapon>() {
+    let _ = weapon;
+}
+let projectile = spawn self.prefab at origin;
+let projectile_origin = projectile.position();
+projectile.set_visibility(false);`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "muzzle"},
+		{Modifier: ast.FieldResource, Name: "prefab", TypeExpr: "Model"},
+	}
+
+	out := RewriteBody(body, "Weapon", fields, ast.HandlerUpdate)
+	if !strings.Contains(out, "let origin = ctx.scene.graph[muzzle].global_position();") {
+		t.Errorf("node handle aliases should keep position() sugar: %s", out)
+	}
+	if !strings.Contains(out, "let parent = ctx.scene.graph[muzzle].parent();") {
+		t.Errorf("node handle aliases should keep parent() sugar: %s", out)
+	}
+	if !strings.Contains(out, "if let Some(weapon) = ctx.scene.graph[parent].script::<Weapon>() {") {
+		t.Errorf("parent handle aliases should keep script::<T>() sugar: %s", out)
+	}
+	if !strings.Contains(out, "let projectile_origin = ctx.scene.graph[projectile].global_position();") {
+		t.Errorf("spawned handle aliases should keep position() sugar: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[projectile].set_visibility(false);") {
+		t.Errorf("spawned handle aliases should keep node method sugar: %s", out)
 	}
 }
 

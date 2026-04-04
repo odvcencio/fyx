@@ -20,6 +20,77 @@ use fyrox::resource::model::Model;
 use fyrox::scene::node::Node;
 #[allow(unused_imports)]
 use fyrox::script::{ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload, ScriptTrait};
+#[allow(unused_imports)]
+use fyrox::graph::SceneGraph;
+#[allow(unused_imports)]
+use fyrox::scene::graph::Graph;
+
+fn fyx_find_node_path(graph: &Graph, path: &str) -> Handle<Node> {
+    let parts = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        panic!("Fyx node path is empty");
+    };
+    if parts.len() == 1 {
+        return graph
+            .find_by_name_from_root(parts[0])
+            .map(|(handle, _)| handle)
+            .unwrap_or_else(|| panic!("Fyx node path not found: {}", path));
+    }
+    let Some((mut current, _)) = graph.find_by_name_from_root(parts[0]) else {
+        panic!("Fyx node path not found: {}", path);
+    };
+    for segment in parts.iter().skip(1) {
+        let current_node = graph
+            .try_get_node(current)
+            .unwrap_or_else(|_| panic!("Fyx node path not found: {}", path));
+        let Some(next) = current_node.children().iter().copied().find(|child| {
+            graph
+                .try_get_node(*child)
+                .map(|node| node.name() == *segment)
+                .unwrap_or(false)
+        }) else {
+            panic!("Fyx node path not found: {}", path);
+        };
+        current = next;
+    }
+    current
+}
+
+fn fyx_expect_node_type<T>(graph: &Graph, handle: Handle<Node>, path: &str, expected_type: &str) -> Handle<Node> {
+    if graph.try_get_of_type::<T>(handle).is_err() {
+        panic!("Fyx node path '{}' did not resolve to expected type {}", path, expected_type);
+    }
+    handle
+}
+
+fn fyx_expect_nodes_type<T>(graph: &Graph, handles: Vec<Handle<Node>>, path: &str, expected_type: &str) -> Vec<Handle<Node>> {
+    for handle in &handles {
+        if graph.try_get_of_type::<T>(*handle).is_err() {
+            panic!("Fyx node path '{}' did not resolve to expected type {}", path, expected_type);
+        }
+    }
+    handles
+}
+
+fn fyx_find_nodes_path(graph: &Graph, pattern: &str) -> Vec<Handle<Node>> {
+    if let Some(parent_path) = pattern.strip_suffix("/*") {
+        if parent_path.is_empty() {
+            return graph
+                .try_get_node(graph.root())
+                .map(|node| node.children().to_vec())
+                .unwrap_or_else(|_| panic!("Fyx node path not found: {}", pattern));
+        }
+        let parent = fyx_find_node_path(graph, parent_path);
+        return graph
+            .try_get_node(parent)
+            .map(|node| node.children().to_vec())
+            .unwrap_or_else(|_| panic!("Fyx node path not found: {}", pattern));
+    }
+    vec![fyx_find_node_path(graph, pattern)]
+}
 
 
 use super::support::helpers::*;
@@ -83,9 +154,6 @@ pub struct TurretController {
     #[reflect(hidden)]
     #[visit(skip)]
     _heat_prev: f32,
-    #[reflect(hidden)]
-    #[visit(skip)]
-    _overheated_prev: bool,
 }
 
 impl Default for TurretController {
@@ -102,11 +170,9 @@ impl Default for TurretController {
             shots_fired: Default::default(),
             cooldown: Default::default(),
             _heat_prev: Default::default(),
-            _overheated_prev: Default::default(),
         };
-        value._heat_prev = value.heat.clone();
         value.overheated = value.heat >= 1.0;
-        value._overheated_prev = value.overheated.clone();
+        value._heat_prev = value.heat.clone();
         value
     }
 }
@@ -122,12 +188,8 @@ impl ScriptTrait for TurretController {
 
     #[allow(unused_variables)]
     fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {
-        self.pivot = ctx.scene.graph.find_by_name_from_root("Turret/Pivot")
-            .map(|(h, _)| h)
-            .unwrap_or_default();
-        self.muzzle = ctx.scene.graph.find_by_name_from_root("Turret/Muzzle")
-            .map(|(h, _)| h)
-            .unwrap_or_default();
+        self.pivot = fyx_find_node_path(&ctx.scene.graph, "Turret/Pivot");
+        self.muzzle = fyx_find_node_path(&ctx.scene.graph, "Turret/Muzzle");
         {
             self.cooldown = 0.0;
         };
@@ -154,9 +216,19 @@ impl ScriptTrait for TurretController {
                         let _heat_marker = ctx.ecs.spawn((HeatTrail { heat: self.heat, ttl: 0.5 }, ShotOwner { node: self.muzzle }));
                     }
             
-            self.overheated = self.heat >= 1.0;
+            let _fyx_heat_changed = self.heat != self._heat_prev;
             
-            self._heat_prev = self.heat.clone();
+            let _fyx_overheated_changed = if _fyx_heat_changed {
+                let _fyx_overheated_prev = self.overheated.clone();
+                self.overheated = self.heat >= 1.0;
+                self.overheated != _fyx_overheated_prev
+            } else {
+                false
+            };
+            
+            if _fyx_heat_changed {
+                self._heat_prev = self.heat.clone();
+            }
         };
         Ok(())
     }
@@ -194,9 +266,6 @@ pub struct TurretHud {
     #[reflect(hidden)]
     #[visit(skip)]
     _visible_heat_prev: f32,
-    #[reflect(hidden)]
-    #[visit(skip)]
-    _overheated_prev: bool,
 }
 
 impl Default for TurretHud {
@@ -207,11 +276,9 @@ impl Default for TurretHud {
             visible_heat: 0.0,
             overheated: Default::default(),
             _visible_heat_prev: Default::default(),
-            _overheated_prev: Default::default(),
         };
-        value._visible_heat_prev = value.visible_heat.clone();
         value.overheated = value.visible_heat >= 1.0;
-        value._overheated_prev = value.overheated.clone();
+        value._visible_heat_prev = value.visible_heat.clone();
         value
     }
 }
@@ -241,31 +308,36 @@ impl ScriptTrait for TurretHud {
     #[allow(unused_variables)]
     fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {
         {
-            self.overheated = self.visible_heat >= 1.0;
+            let _fyx_visible_heat_changed = self.visible_heat != self._visible_heat_prev;
             
-            if self.overheated != self._overheated_prev {
+            let _fyx_overheated_changed = if _fyx_visible_heat_changed {
+                let _fyx_overheated_prev = self.overheated.clone();
+                self.overheated = self.visible_heat >= 1.0;
+                self.overheated != _fyx_overheated_prev
+            } else {
+                false
+            };
+            
+            if _fyx_overheated_changed {
                 if self.overheated {
                             ctx.scene.graph[self.status_label].set_text("OVERHEATED");
                             ctx.scene.graph[self.status_label].set_color(Color::RED);
                         } else {
                             ctx.scene.graph[self.status_label].set_text("READY");
                         }
-                self._overheated_prev = self.overheated.clone();
             }
             
-            self._visible_heat_prev = self.visible_heat.clone();
+            if _fyx_visible_heat_changed {
+                self._visible_heat_prev = self.visible_heat.clone();
+            }
         };
         Ok(())
     }
 
     #[allow(unused_variables)]
     fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {
-        self.heat_bar = ctx.scene.graph.find_by_name_from_root("UI/HeatBar")
-            .map(|(h, _)| h)
-            .unwrap_or_default();
-        self.status_label = ctx.scene.graph.find_by_name_from_root("UI/Status")
-            .map(|(h, _)| h)
-            .unwrap_or_default();
+        self.heat_bar = fyx_expect_node_type::<ProgressBar>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "UI/HeatBar"), "UI/HeatBar", "ProgressBar");
+        self.status_label = fyx_expect_node_type::<Text>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "UI/Status"), "UI/Status", "Text");
         {
             ctx.message_dispatcher.subscribe_to::<TurretControllerFiredMsg>(ctx.handle);
             ctx.message_dispatcher.subscribe_to::<TurretControllerHeatChangedMsg>(ctx.handle);
@@ -288,7 +360,8 @@ pub fn system_decay_heat_trails(world: &mut EcsWorld, ctx: &PluginContext) {
 
 pub fn system_inspect_heat_trails(world: &mut EcsWorld, ctx: &PluginContext) {
     for (_entity, (trail, owner)) in world.query_mut::<(&HeatTrail, &ShotOwner)>() {
-        let _ = (trail.heat, owner.node);
+        let trail_origin = ctx.scene.graph[owner.node].global_position();
+                let _ = (trail.heat, trail_origin);
     }
 }
 

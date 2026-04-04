@@ -69,13 +69,15 @@ func compileProject(inputDir string) (*compileResult, error) {
 	}
 
 	signalIndex := transpiler.BuildSignalIndex(astFiles)
+	componentHandleIndex := transpiler.BuildComponentHandleIndex(astFiles)
 	result := &compileResult{Files: files}
 	for i := range result.Files {
 		file := &result.Files[i]
 		file.Output = transpiler.TranspileFileResult(file.File, transpiler.Options{
-			CurrentModule: file.ModulePath,
-			SignalIndex:   signalIndex,
-			SourcePath:    file.SourcePath,
+			CurrentModule:        file.ModulePath,
+			SignalIndex:          signalIndex,
+			ComponentHandleIndex: componentHandleIndex,
+			SourcePath:           file.SourcePath,
 		})
 		result.TotalScripts += len(file.File.Scripts)
 		result.TotalComponents += len(file.File.Components)

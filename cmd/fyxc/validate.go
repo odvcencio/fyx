@@ -285,6 +285,10 @@ pub mod fyrox {
     }
 
     pub mod scene {
+        pub mod graph {
+            pub use crate::Graph;
+        }
+
         pub mod node {
             pub use crate::Node;
         }
@@ -295,6 +299,10 @@ pub mod fyrox {
             ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload,
             ScriptTrait,
         };
+    }
+
+    pub mod graph {
+        pub use crate::SceneGraph;
     }
 }
 
@@ -309,8 +317,10 @@ impl<T> Default for Resource<T> {
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Node;
+pub type Camera = Node;
 pub type Camera3D = Node;
 pub type Light = Node;
+pub type Mesh = Node;
 pub type Text = Node;
 pub type Sprite = Node;
 pub type ProgressBar = Node;
@@ -377,6 +387,10 @@ impl NodeRef {
     pub fn global_position(&self) -> Vector3 { Vector3 }
     pub fn look_vector(&self) -> Vector3 { Vector3 }
     pub fn parent(&self) -> Handle<Node> { Handle::default() }
+    pub fn children(&self) -> &[Handle<Node>] { &[] }
+    pub fn name(&self) -> &str { "" }
+    pub fn script<T>(&self) -> Option<&T> { None }
+    pub fn script_mut<T>(&mut self) -> Option<&mut T> { None }
     pub fn set_rotation_y(&mut self, _value: f32) {}
     pub fn set_visibility(&mut self, _value: bool) {}
     pub fn animate(&mut self, _value: &str) {}
@@ -392,8 +406,18 @@ pub struct Graph {
     node: NodeRef,
 }
 impl Graph {
+    pub fn root(&self) -> Handle<Node> { Handle::default() }
+    pub fn find_by_name(&self, _root: Handle<Node>, _name: &str) -> Option<(Handle<Node>, &NodeRef)> {
+        Some((Handle::default(), &self.node))
+    }
     pub fn find_by_name_from_root(&self, _name: &str) -> Option<(Handle<Node>, ())> {
         Some((Handle::default(), ()))
+    }
+    pub fn try_get_node(&self, _handle: Handle<Node>) -> Result<&NodeRef, ()> {
+        Ok(&self.node)
+    }
+    pub fn try_get_of_type<T>(&self, _handle: Handle<Node>) -> Result<(), ()> {
+        Ok(())
     }
 }
 impl Index<Handle<Node>> for Graph {
@@ -514,7 +538,11 @@ pub struct PluginRegistrationContext {
 pub struct PluginContext {
     pub dt: f32,
     pub scene: Scene,
+    pub message_sender: MessageSender,
 }
+
+pub trait SceneGraph {}
+impl SceneGraph for Graph {}
 
 pub fn do_hit_check<T1, T2, T3, T4>(_a: T1, _b: T2, _c: T3, _d: T4) {}
 

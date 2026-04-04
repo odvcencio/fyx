@@ -9,6 +9,7 @@ import (
 )
 
 var despawnCallRe = regexp.MustCompile(`\bdespawn\s*\(`)
+var systemSceneRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])scene\.`)
 
 // TranspileComponent generates a Rust struct from an AST Component.
 // Component fields are always public and the struct derives Clone.
@@ -35,12 +36,12 @@ func EmitComponent(e *RustEmitter, c ast.Component) {
 // becomes a for loop over world.query_mut.
 func TranspileSystem(s ast.System) string {
 	e := NewEmitter()
-	EmitSystem(e, s)
+	EmitSystem(e, s, Options{})
 	return e.String()
 }
 
 // EmitSystem writes a system function into an emitter.
-func EmitSystem(e *RustEmitter, s ast.System) {
+func EmitSystem(e *RustEmitter, s ast.System, opts Options) {
 	e.LineWithSource(fmt.Sprintf("pub fn system_%s(world: &mut EcsWorld, ctx: &PluginContext) {", s.Name), s.Line)
 	e.Indent()
 
@@ -54,10 +55,10 @@ func EmitSystem(e *RustEmitter, s ast.System) {
 	}
 
 	for _, q := range s.Queries {
-		emitQueryLoop(e, q)
+		emitQueryLoop(e, q, opts)
 	}
 
-	body := strings.TrimSpace(rewriteSystemBody(s.Body))
+	body := strings.TrimSpace(rewriteSystemBody(s.Body, opts, nil))
 	if body != "" {
 		lines := strings.Split(body, "\n")
 		for i, line := range lines {
@@ -124,7 +125,7 @@ func injectedParamSource(p ast.Param) string {
 // emitQueryLoop emits a for loop that iterates over query results.
 // Entity-typed parameters are bound to the entity variable; all others
 // go into the query type tuple.
-func emitQueryLoop(e *RustEmitter, q ast.Query) {
+func emitQueryLoop(e *RustEmitter, q ast.Query, opts Options) {
 	var entityVar string
 	var queryNames []string
 	var queryTypes []string
@@ -157,7 +158,7 @@ func emitQueryLoop(e *RustEmitter, q ast.Query) {
 	}
 	e.Indent()
 
-	body := strings.TrimSpace(rewriteSystemBody(q.Body))
+	body := strings.TrimSpace(rewriteSystemBody(q.Body, opts, queryHandleReceivers(q, opts.ComponentHandleIndex)))
 	if body != "" {
 		lines := strings.Split(body, "\n")
 		for i, line := range lines {
@@ -169,7 +170,28 @@ func emitQueryLoop(e *RustEmitter, q ast.Query) {
 	e.LineWithSource("}", q.Line)
 }
 
-func rewriteSystemBody(body string) string {
+func rewriteSystemBody(body string, opts Options, handleReceivers []string) string {
+	body = systemSceneRe.ReplaceAllString(body, "${1}ctx.scene.")
+	body = RewriteEmitStatements(body, "", opts.SignalIndex)
+	body = rewriteSystemHandleSugar(body, handleReceivers)
 	body = rewriteEcsSpawnCalls(body, "world")
+	body = graphRotateYRe.ReplaceAllString(body, `${1}.set_rotation_y(`)
 	return despawnCallRe.ReplaceAllString(body, "world.despawn(")
+}
+
+func queryHandleReceivers(q ast.Query, index ComponentHandleIndex) []string {
+	var initialReceivers []string
+	for _, p := range q.Params {
+		if isNodeHandleType(p.TypeExpr) {
+			initialReceivers = append(initialReceivers, p.Name)
+		}
+		for _, field := range index[strings.TrimSpace(p.TypeExpr)] {
+			initialReceivers = append(initialReceivers, p.Name+"."+field)
+		}
+	}
+	return expandHandleReceivers(q.Body, initialReceivers, nil, false)
+}
+
+func rewriteSystemHandleSugar(body string, receivers []string) string {
+	return rewriteHandleReceivers(body, receivers)
 }

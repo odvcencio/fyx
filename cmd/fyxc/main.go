@@ -1,11 +1,19 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 )
+
+type runOptions struct {
+	CheckOnly      bool
+	OutDir         string
+	CargoCheck     bool
+	WriteSourceMap bool
+}
 
 func main() {
 	cmd, flagArgs, posArgs := parseArgs(os.Args[1:])
@@ -19,6 +27,7 @@ func main() {
 	outDir := fs.String("out", "generated", "Output directory")
 	cargoCheck := fs.Bool("cargo-check", false, "Validate generated Rust with cargo check")
 	writeSourceMap := fs.Bool("emit-source-map", true, "Write .fyxmap.json sidecars when output files are written")
+	watch := fs.Bool("watch", false, "Re-run build/check when .fyx files change")
 	fs.Parse(flagArgs)
 
 	inputDir := "."
@@ -26,44 +35,65 @@ func main() {
 		inputDir = posArgs[0]
 	}
 
-	result, err := compileProject(inputDir)
-	if err != nil {
+	opts := runOptions{
+		CheckOnly:      *checkOnly,
+		OutDir:         *outDir,
+		CargoCheck:     *cargoCheck,
+		WriteSourceMap: *writeSourceMap,
+	}
+
+	if *watch {
+		if err := watchAndRun(inputDir, opts); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if err := runOnce(inputDir, opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
 
-	printSummary(result, *outDir)
+func runOnce(inputDir string, opts runOptions) error {
+	result, err := compileProject(inputDir)
+	if err != nil {
+		return err
+	}
 
-	if !*checkOnly {
-		if err := writeOutputTree(*outDir, result.Files, *writeSourceMap); err != nil {
-			fmt.Fprintf(os.Stderr, "write output: %v\n", err)
-			os.Exit(1)
+	printSummary(result, opts.OutDir)
+
+	if !opts.CheckOnly {
+		if err := writeOutputTree(opts.OutDir, result.Files, opts.WriteSourceMap); err != nil {
+			return fmt.Errorf("write output: %w", err)
 		}
 	}
 
-	if *cargoCheck {
+	if opts.CargoCheck {
 		diagnostics, err := validateGeneratedFiles(result.Files)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cargo check failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("cargo check failed: %w", err)
 		}
 		if len(diagnostics) > 0 {
+			var b strings.Builder
 			for _, diag := range diagnostics {
-				fmt.Fprintf(os.Stderr, "%s:%d:%d: %s\n", diag.SourcePath, diag.SourceLine, diag.Column, diag.Message)
+				fmt.Fprintf(&b, "%s:%d:%d: %s\n", diag.SourcePath, diag.SourceLine, diag.Column, diag.Message)
 			}
-			os.Exit(1)
+			return errors.New(strings.TrimRight(b.String(), "\n"))
 		}
 		fmt.Println("  cargo check passed")
 	}
 
-	if *checkOnly {
+	if opts.CheckOnly {
 		fmt.Printf("\n  Check passed: %d files, %d scripts, %d components, %d systems, %d arbiter decls\n",
 			len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems, result.TotalArbiter)
-		return
+		return nil
 	}
 
 	fmt.Printf("\n  Summary: %d files, %d scripts, %d components, %d systems, %d arbiter decls\n",
 		len(result.Files), result.TotalScripts, result.TotalComponents, result.TotalSystems, result.TotalArbiter)
+	return nil
 }
 
 func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) {
@@ -80,7 +110,7 @@ func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) 
 	for i := 0; i < len(raw); i++ {
 		arg := raw[i]
 		switch {
-		case arg == "--check" || arg == "--cargo-check" || arg == "--emit-source-map":
+		case arg == "--check" || arg == "--cargo-check" || arg == "--emit-source-map" || arg == "--watch":
 			flagArgs = append(flagArgs, arg)
 		case arg == "--out" && i+1 < len(raw):
 			flagArgs = append(flagArgs, arg, raw[i+1])
@@ -96,6 +126,6 @@ func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) 
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: fyxc build [dir] [--check] [--cargo-check] [--out <dir>]")
-	fmt.Fprintln(os.Stderr, "       fyxc check [dir] [--cargo-check] [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "Usage: fyxc build [dir] [--check] [--cargo-check] [--watch] [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "       fyxc check [dir] [--cargo-check] [--watch] [--out <dir>]")
 }

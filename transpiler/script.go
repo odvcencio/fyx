@@ -138,11 +138,13 @@ func emitDefaultImpl(e *RustEmitter, s ast.Script) {
 	e.Dedent()
 	e.LineWithSource("};", s.Line)
 
-	for _, f := range s.Fields {
-		if f.Modifier == ast.FieldDerived && f.Default != "" {
+	for _, f := range orderedDerivedFields(s.Fields) {
+		if f.Default != "" {
 			e.LineWithSource(fmt.Sprintf("value.%s = %s;", f.Name, rewriteDefaultExpr(f.Default)), f.Line)
-			e.LineWithSource(fmt.Sprintf("value.%s = value.%s.clone();", prevFieldName(f.Name), f.Name), f.Line)
 		}
+	}
+
+	for _, f := range s.Fields {
 		if f.Modifier == ast.FieldReactive {
 			e.LineWithSource(fmt.Sprintf("value.%s = value.%s.clone();", prevFieldName(f.Name), f.Name), f.Line)
 		}

@@ -80,6 +80,14 @@ impl Default for ScoreTracker {
 
 impl ScriptTrait for ScoreTracker {
     #[allow(unused_variables)]
+    fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {
+        {
+            ctx.message_sender.send_to_target(ctx.handle, EnemyDamagedMsg { amount: 1.0 });
+        };
+        Ok(())
+    }
+
+    #[allow(unused_variables)]
     fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {
         {
             ctx.message_dispatcher.subscribe_to::<EnemyDiedMsg>(ctx.handle);

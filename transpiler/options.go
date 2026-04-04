@@ -9,9 +9,10 @@ import (
 
 // Options configures file transpilation in a project context.
 type Options struct {
-	CurrentModule []string
-	SignalIndex   SignalIndex
-	SourcePath    string
+	CurrentModule        []string
+	SignalIndex          SignalIndex
+	ComponentHandleIndex ComponentHandleIndex
+	SourcePath           string
 }
 
 // GeneratedFile is the transpiled Rust output plus optional source mapping metadata.
@@ -43,6 +44,9 @@ func (m SourceMap) Resolve(generatedLine int) int {
 // SignalIndex maps Script::signal identifiers to their declared parameters.
 type SignalIndex map[string][]ast.Param
 
+// ComponentHandleIndex maps component names to the field names that carry Handle<Node>.
+type ComponentHandleIndex map[string][]string
+
 // BuildSignalIndex collects signal declarations across a set of parsed files.
 func BuildSignalIndex(files []ast.File) SignalIndex {
 	index := make(SignalIndex)
@@ -59,8 +63,28 @@ func BuildSignalIndex(files []ast.File) SignalIndex {
 	return index
 }
 
+// BuildComponentHandleIndex collects component fields that are scene node handles.
+func BuildComponentHandleIndex(files []ast.File) ComponentHandleIndex {
+	index := make(ComponentHandleIndex)
+	for _, file := range files {
+		for _, component := range file.Components {
+			for _, field := range component.Fields {
+				if !isNodeHandleType(field.TypeExpr) {
+					continue
+				}
+				index[component.Name] = append(index[component.Name], field.Name)
+			}
+		}
+	}
+	return index
+}
+
 func signalIndexKey(scriptName, signalName string) string {
 	return scriptName + "::" + signalName
+}
+
+func isNodeHandleType(typeExpr string) bool {
+	return strings.ReplaceAll(strings.TrimSpace(typeExpr), " ", "") == "Handle<Node>"
 }
 
 func signalParamsFor(index SignalIndex, scriptName, signalName string) []ast.Param {

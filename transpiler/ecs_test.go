@@ -218,3 +218,189 @@ func TestTranspileSystemRewritesEcsSpawn(t *testing.T) {
 		t.Errorf("ecs.spawn should be rewritten to world.spawn tuple: %s", out)
 	}
 }
+
+func TestTranspileFileSystemRewritesQualifiedEmit(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "Enemy",
+				Signals: []ast.Signal{
+					{Name: "damaged", Params: []ast.Param{{Name: "amount", TypeExpr: "f32"}}},
+				},
+			},
+		},
+		Systems: []ast.System{
+			{
+				Name: "damage_enemies",
+				Body: "emit Enemy::damaged(amount: 5.0) to target;",
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "ctx.message_sender.send_to_target(target, EnemyDamagedMsg { amount: 5.0 });") {
+		t.Fatalf("qualified emit should be rewritten inside systems: %s", out)
+	}
+	if strings.Contains(out, "emit Enemy::damaged") {
+		t.Fatalf("raw emit should not remain in system output: %s", out)
+	}
+}
+
+func TestTranspileFileSystemRewritesSceneShorthandAndTargetedEmit(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "Damageable",
+				Signals: []ast.Signal{
+					{
+						Name: "damaged",
+						Params: []ast.Param{
+							{Name: "amount", TypeExpr: "f32"},
+							{Name: "source", TypeExpr: "Handle<Node>"},
+						},
+					},
+				},
+			},
+		},
+		Systems: []ast.System{
+			{
+				Name: "projectile_hits",
+				Queries: []ast.Query{
+					{
+						Params: []ast.QueryParam{
+							{Name: "entity", TypeExpr: "Entity"},
+							{Name: "pos", TypeExpr: "Transform"},
+							{Name: "vel", TypeExpr: "Velocity"},
+							{Name: "proj", TypeExpr: "Projectile"},
+						},
+						Body: `for hit in scene.physics.raycast(pos.position(), vel.linear.normalized(), 0.5) {
+    emit Damageable::damaged(amount: proj.damage, source: proj.owner) to hit.node;
+    despawn(entity);
+}`,
+					},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "for hit in ctx.scene.physics.raycast(pos.position(), vel.linear.normalized(), 0.5) {") {
+		t.Fatalf("scene shorthand should rewrite to ctx.scene inside systems: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_sender.send_to_target(hit.node, DamageableDamagedMsg { amount: proj.damage, source: proj.owner });") {
+		t.Fatalf("targeted emit should be rewritten inside system query bodies: %s", out)
+	}
+	if !strings.Contains(out, "world.despawn(entity);") {
+		t.Fatalf("despawn shorthand should remain active inside the same system body: %s", out)
+	}
+}
+
+func TestTranspileFileSystemRewritesComponentNodeHandleSugar(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "Damageable",
+				Signals: []ast.Signal{
+					{Name: "damaged", Params: []ast.Param{{Name: "amount", TypeExpr: "f32"}}},
+				},
+			},
+		},
+		Components: []ast.Component{
+			{
+				Name: "ShotOwner",
+				Fields: []ast.Field{
+					{Modifier: ast.FieldBare, Name: "node", TypeExpr: "Handle<Node>"},
+				},
+			},
+		},
+		Systems: []ast.System{
+			{
+				Name: "inspect_owners",
+				Queries: []ast.Query{
+					{
+						Params: []ast.QueryParam{
+							{Name: "owner", TypeExpr: "ShotOwner"},
+						},
+						Body: `let pos = owner.node.position();
+if let Some(target) = owner.node.script::<Damageable>() {
+    let _ = (pos, target);
+}
+owner.node.set_visibility(false);
+owner.node.rotate_y(0.25);`,
+					},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "let pos = ctx.scene.graph[owner.node].global_position();") {
+		t.Fatalf("component Handle<Node> fields should expose position() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "if let Some(target) = ctx.scene.graph[owner.node].script::<Damageable>() {") {
+		t.Fatalf("component Handle<Node> fields should expose script::<T>() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[owner.node].set_visibility(false);") {
+		t.Fatalf("component Handle<Node> fields should expose node methods inside systems: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[owner.node].set_rotation_y(0.25);") {
+		t.Fatalf("component Handle<Node> fields should reuse graph rotate sugar inside systems: %s", out)
+	}
+}
+
+func TestTranspileFileSystemRewritesComponentNodeHandleAliases(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "Damageable",
+			},
+			{
+				Name: "Weapon",
+			},
+		},
+		Components: []ast.Component{
+			{
+				Name: "ShotOwner",
+				Fields: []ast.Field{
+					{Modifier: ast.FieldBare, Name: "node", TypeExpr: "Handle<Node>"},
+				},
+			},
+		},
+		Systems: []ast.System{
+			{
+				Name: "inspect_owners",
+				Queries: []ast.Query{
+					{
+						Params: []ast.QueryParam{
+							{Name: "owner", TypeExpr: "ShotOwner"},
+						},
+						Body: `let owner_node = owner.node;
+let owner_parent = owner_node.parent();
+let pos = owner_node.position();
+if let Some(weapon) = owner_parent.script::<Weapon>() {
+    let _ = (pos, weapon);
+}
+owner_node.set_visibility(false);`,
+					},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "let owner_node = owner.node;") {
+		t.Fatalf("component handle aliases should preserve the authored handle binding: %s", out)
+	}
+	if !strings.Contains(out, "let owner_parent = ctx.scene.graph[owner_node].parent();") {
+		t.Fatalf("component handle aliases should keep parent() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "let pos = ctx.scene.graph[owner_node].global_position();") {
+		t.Fatalf("component handle aliases should keep position() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "if let Some(weapon) = ctx.scene.graph[owner_parent].script::<Weapon>() {") {
+		t.Fatalf("component handle aliases should keep script::<T>() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[owner_node].set_visibility(false);") {
+		t.Fatalf("component handle aliases should keep node method sugar inside systems: %s", out)
+	}
+}

@@ -22,8 +22,8 @@ func TestTranspileNodeField(t *testing.T) {
 	if !strings.Contains(out, "fn on_start") {
 		t.Errorf("missing on_start for node resolution: %s", out)
 	}
-	if !strings.Contains(out, "find_by_name") {
-		t.Errorf("missing find_by_name for node resolution: %s", out)
+	if !strings.Contains(out, `fyx_expect_node_type::<Mesh>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "DoorMesh"), "DoorMesh", "Mesh")`) {
+		t.Errorf("missing typed path helper for node resolution: %s", out)
 	}
 }
 
@@ -39,8 +39,8 @@ func TestTranspileNodeWithUserOnStart(t *testing.T) {
 	}
 	out := TranspileScript(s)
 	// Both node resolution AND user body should be in on_start
-	if !strings.Contains(out, "find_by_name") {
-		t.Errorf("missing node resolution: %s", out)
+	if !strings.Contains(out, `fyx_expect_node_type::<Camera>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "MainCam"), "MainCam", "Camera")`) {
+		t.Errorf("missing typed node resolution: %s", out)
 	}
 	if !strings.Contains(out, "println!") {
 		t.Errorf("missing user body: %s", out)
@@ -60,6 +60,9 @@ func TestTranspileNodesField(t *testing.T) {
 	}
 	if !strings.Contains(out, "fn on_start") {
 		t.Errorf("missing on_start for nodes resolution: %s", out)
+	}
+	if !strings.Contains(out, `fyx_expect_nodes_type::<Mesh>(&ctx.scene.graph, fyx_find_nodes_path(&ctx.scene.graph, "Gears/*"), "Gears/*", "Mesh")`) {
+		t.Errorf("missing typed wildcard helper for nodes resolution: %s", out)
 	}
 }
 
@@ -89,8 +92,8 @@ func TestGenerateNodeResolution(t *testing.T) {
 		{Modifier: ast.FieldInspect, Name: "speed", TypeExpr: "f32"}, // should be ignored
 	}
 	out := GenerateNodeResolution(fields)
-	if !strings.Contains(out, `find_by_name_from_root("Camera3D")`) {
-		t.Errorf("missing node resolution: %s", out)
+	if !strings.Contains(out, `fyx_expect_node_type::<Camera3D>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "Camera3D"), "Camera3D", "Camera3D")`) {
+		t.Errorf("missing typed node resolution: %s", out)
 	}
 	if !strings.Contains(out, `request::<SoundBuffer>("audio/step.wav")`) {
 		t.Errorf("missing resource load: %s", out)
@@ -111,13 +114,59 @@ func TestNodeResolutionBeforeUserBody(t *testing.T) {
 		},
 	}
 	out := TranspileScript(s)
-	findIdx := strings.Index(out, "find_by_name")
+	findIdx := strings.Index(out, "fyx_find_node_path")
 	userIdx := strings.Index(out, "user_code")
 	if findIdx < 0 || userIdx < 0 {
 		t.Fatalf("missing resolution or user code: %s", out)
 	}
 	if findIdx > userIdx {
 		t.Errorf("node resolution should come before user body: %s", out)
+	}
+}
+
+func TestGeneratedNodePathHelpers(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "TurretHud",
+				Fields: []ast.Field{
+					{Modifier: ast.FieldNode, Name: "heat_bar", TypeExpr: "ProgressBar", Default: `"UI/HeatBar"`},
+					{Modifier: ast.FieldNodes, Name: "indicators", TypeExpr: "Node", Default: `"UI/*"`},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "fn fyx_find_node_path(graph: &Graph, path: &str) -> Handle<Node> {") {
+		t.Fatalf("missing exact-path helper: %s", out)
+	}
+	if !strings.Contains(out, "current_node.children().iter().copied().find(|child| {") {
+		t.Fatalf("path helper should walk direct child segments: %s", out)
+	}
+	if !strings.Contains(out, "node.name() == *segment") {
+		t.Fatalf("path helper should compare child names against path segments: %s", out)
+	}
+	if !strings.Contains(out, `panic!("Fyx node path not found: {}", path)`) {
+		t.Fatalf("path helper should fail loudly on missing paths: %s", out)
+	}
+	if !strings.Contains(out, "fn fyx_expect_node_type<T>(graph: &Graph, handle: Handle<Node>, path: &str, expected_type: &str) -> Handle<Node> {") {
+		t.Fatalf("typed node helper missing: %s", out)
+	}
+	if !strings.Contains(out, "fn fyx_expect_nodes_type<T>(graph: &Graph, handles: Vec<Handle<Node>>, path: &str, expected_type: &str) -> Vec<Handle<Node>> {") {
+		t.Fatalf("typed nodes helper missing: %s", out)
+	}
+	if !strings.Contains(out, `if let Some(parent_path) = pattern.strip_suffix("/*")`) {
+		t.Fatalf("wildcard helper missing strip_suffix logic: %s", out)
+	}
+	if !strings.Contains(out, "graph.root()") {
+		t.Fatalf("wildcard helper should support root children: %s", out)
+	}
+	if !strings.Contains(out, "node.children().to_vec()") {
+		t.Fatalf("wildcard helper should collect child handles: %s", out)
+	}
+	if !strings.Contains(out, `fyx_expect_node_type::<ProgressBar>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "UI/HeatBar"), "UI/HeatBar", "ProgressBar")`) {
+		t.Fatalf("typed node field should validate the resolved Fyrox node type: %s", out)
 	}
 }
 

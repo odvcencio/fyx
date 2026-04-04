@@ -37,8 +37,8 @@ script TurretController {
         self.heat = cool_heat(self.heat, dt);
         self.plan = ShotPlan::for_heat(self.heat);
 
-        let origin = self.muzzle.global_position();
-        let direction = aim_direction(&ctx.scene.graph[self.muzzle]);
+        let origin = self.muzzle.position();
+        let direction = aim_direction(&self.muzzle.node());
 
         if self.cooldown <= 0.0 && !self.overheated && target_visible(&ctx.scene, origin, direction, self.range) {
             emit fired(origin, direction);
@@ -115,6 +115,7 @@ system decay_heat_trails(dt: f32) {
 
 system inspect_heat_trails {
     query(trail: &HeatTrail, owner: &ShotOwner) {
-        let _ = (trail.heat, owner.node);
+        let trail_origin = owner.node.position();
+        let _ = (trail.heat, trail_origin);
     }
 }

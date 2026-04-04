@@ -5,6 +5,7 @@ script Weapon {
     node muzzle: Node = "MuzzlePoint"
     node flash: Light = "MuzzleFlash"
     resource fire_sound: SoundBuffer = "res://audio/rifle_fire.wav"
+    resource projectile_prefab: Model = "res://models/projectile.rgs"
 
     reactive ammo: i32 = 30
     derived can_fire: bool = self.ammo > 0
@@ -16,8 +17,24 @@ script Weapon {
     cooldown: f32
 
     on update(ctx) {
-        self.cooldown -= ctx.dt;
+        self.cooldown -= dt;
         self.flash.set_visibility(false);
+
+        if self.ammo > 0 && self.cooldown <= 0.0 {
+            let muzzle = self.muzzle;
+            let origin = muzzle.position();
+            let direction = muzzle.forward();
+            let projectile = spawn self.projectile_prefab at origin;
+            let projectile_origin = projectile.position();
+            let _shot = ecs.spawn(
+                Projectile { damage: self.damage, owner: projectile, lifetime: 1.0 },
+                Velocity { linear: direction * 24.0, angular: Vector3::default() },
+            );
+            emit fired(projectile_origin, direction);
+            self.flash.set_visibility(true);
+            self.cooldown = self.fire_rate;
+            self.ammo -= 1;
+        }
     }
 }
 
@@ -27,7 +44,15 @@ script WeaponHUD {
 
     connect Weapon::fired(pos, dir) {
         self.crosshair.animate("kick");
+        if let Some(weapon) = self.parent().script::<Weapon>() {
+            let ammo_text = weapon.ammo_display.clone();
+            self.ammo_label.set_text(ammo_text);
+        }
     }
+}
+
+script Damageable {
+    signal damaged(amount: f32, source: Handle<Node>)
 }
 
 component Projectile {
@@ -55,6 +80,12 @@ system expire_projectiles(dt: f32) {
 
 system projectile_hits {
     query(entity: Entity, pos: &Transform, vel: &Velocity, proj: &Projectile) {
-        do_hit_check(entity, pos, vel, proj);
+        let owner = proj.owner;
+        let owner_origin = owner.position();
+        let _ = owner_origin;
+        for hit in scene.physics.raycast(pos.position(), vel.linear.normalized(), 0.5) {
+            emit Damageable::damaged(amount: proj.damage, source: owner) to hit.node;
+            despawn(entity);
+        }
     }
 }

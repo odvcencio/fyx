@@ -10,7 +10,7 @@ Fyx is a source-preserving language layer over Rust, tuned for Fyrox-style gamep
    - script lifecycle handlers
    - signals and targeted emits
    - reactive/derived/watch plumbing
-   - ECS queries, despawn, and script-side `ecs.spawn(...)`
+   - Fyx ECS queries, despawn, and script-side `ecs.spawn(...)`
    - node/resource resolution
    - top-level import/module wiring
    - rust-only helper modules preserved as authored Rust
@@ -18,6 +18,7 @@ Fyx is a source-preserving language layer over Rust, tuned for Fyrox-style gamep
    - generated `.rs`
    - `.fyxmap.json` line maps
    - `.arb` sidecars for preserved Arbiter declarations
+   - with `--watch`, rebuilds or re-checks when `.fyx` files change
 5. `fyxc check --cargo-check` validates generated Rust in a synthetic harness and maps compiler diagnostics back to `.fyx` lines.
 
 ## Design Constraints
@@ -34,8 +35,9 @@ Fyx is a source-preserving language layer over Rust, tuned for Fyrox-style gamep
 
 - Script authoring surface
 - Signal/reaction model
-- ECS runtime crate with sparse-set storage
+- Fyx ECS runtime crate with sparse-set storage
 - Source-mapped validation
+- CLI watch loop for rebuild/check on `.fyx` changes
 - Preserved Arbiter declarations and sidecar emission
 - Basic editor assets
 
@@ -43,7 +45,6 @@ Fyx is a source-preserving language layer over Rust, tuned for Fyrox-style gamep
 
 - `fyrox-template --lang fyx`
 - Fyroxed-native plugin integration
-- Hot reload / watch loop
 - LSP
 - Full Arbiter runtime execution wiring beyond preserved bundles
 

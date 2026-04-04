@@ -15,15 +15,12 @@ func TestReactiveFieldDecls(t *testing.T) {
 	}
 
 	extras := ReactiveFieldDecls(fields)
-	if len(extras) != 2 {
-		t.Fatalf("expected 2 extras, got %d: %+v", len(extras), extras)
+	if len(extras) != 1 {
+		t.Fatalf("expected 1 extra, got %d: %+v", len(extras), extras)
 	}
 
 	if extras[0].Name != "_health_prev" || extras[0].TypeExpr != "f32" {
 		t.Errorf("extras[0] = %+v, want _health_prev: f32", extras[0])
-	}
-	if extras[1].Name != "_is_critical_prev" || extras[1].TypeExpr != "bool" {
-		t.Errorf("extras[1] = %+v, want _is_critical_prev: bool", extras[1])
 	}
 }
 
@@ -52,15 +49,12 @@ func TestReactiveDefaultInits(t *testing.T) {
 	}
 
 	inits := ReactiveDefaultInits(fields)
-	if len(inits) != 2 {
-		t.Fatalf("expected 2 init lines, got %d: %v", len(inits), inits)
+	if len(inits) != 1 {
+		t.Fatalf("expected 1 init line, got %d: %v", len(inits), inits)
 	}
 
 	if inits[0] != "_health_prev: 100.0," {
 		t.Errorf("inits[0] = %q, want %q", inits[0], "_health_prev: 100.0,")
-	}
-	if inits[1] != "_is_critical_prev: self.health < 20.0," {
-		t.Errorf("inits[1] = %q, want %q", inits[1], "_is_critical_prev: self.health < 20.0,")
 	}
 }
 
@@ -95,25 +89,33 @@ func TestGenerateReactiveUpdateCode(t *testing.T) {
 
 	code := GenerateReactiveUpdateCode(fields, watches)
 
-	// Derived recomputation
-	if !strings.Contains(code, "self.is_critical = self.health < 20.0;") {
-		t.Errorf("missing derived recompute: %s", code)
+	// Reactive change tracking
+	if !strings.Contains(code, "let _fyx_health_changed = self.health != self._health_prev;") {
+		t.Errorf("missing reactive change flag: %s", code)
 	}
 
-	// Watch dirty-check
-	if !strings.Contains(code, "if self.is_critical != self._is_critical_prev {") {
+	// Derived recomputation should be gated by reactive dependency changes
+	if !strings.Contains(code, "let _fyx_is_critical_changed = if _fyx_health_changed {") {
+		t.Errorf("missing gated derived recompute: %s", code)
+	}
+	if !strings.Contains(code, "self.is_critical = self.health < 20.0;") {
+		t.Errorf("missing derived assignment: %s", code)
+	}
+
+	// Watch dirty-check uses the local changed flag
+	if !strings.Contains(code, "if _fyx_is_critical_changed {") {
 		t.Errorf("missing watch conditional: %s", code)
 	}
 	if !strings.Contains(code, "do_thing();") {
 		t.Errorf("missing watch body: %s", code)
 	}
-	if !strings.Contains(code, "self._is_critical_prev = self.is_critical.clone();") {
-		t.Errorf("missing watch prev update: %s", code)
+	if strings.Contains(code, "self._is_critical_prev") {
+		t.Errorf("derived fields should not keep struct-level shadow prev storage: %s", code)
 	}
 
-	// Reactive prev update
-	if !strings.Contains(code, "self._health_prev = self.health.clone();") {
-		t.Errorf("missing reactive prev update: %s", code)
+	// Reactive prev update is conditional
+	if !strings.Contains(code, "if _fyx_health_changed {") || !strings.Contains(code, "self._health_prev = self.health.clone();") {
+		t.Errorf("missing conditional reactive prev update: %s", code)
 	}
 }
 
@@ -129,13 +131,13 @@ func TestGenerateReactiveUpdateCodeReactiveOnly(t *testing.T) {
 		{Modifier: ast.FieldReactive, Name: "speed", TypeExpr: "f32", Default: "10.0"},
 	}
 	code := GenerateReactiveUpdateCode(fields, nil)
-	if !strings.Contains(code, "self._speed_prev = self.speed.clone();") {
-		t.Errorf("missing reactive prev update: %s", code)
+	if !strings.Contains(code, "let _fyx_speed_changed = self.speed != self._speed_prev;") {
+		t.Errorf("missing reactive change flag: %s", code)
+	}
+	if !strings.Contains(code, "if _fyx_speed_changed {") || !strings.Contains(code, "self._speed_prev = self.speed.clone();") {
+		t.Errorf("missing conditional reactive prev update: %s", code)
 	}
 	// No derived recomputation or watch blocks
-	if strings.Contains(code, "if ") {
-		t.Errorf("unexpected watch conditional in reactive-only code: %s", code)
-	}
 }
 
 func TestGenerateReactiveUpdateCodeMultipleWatches(t *testing.T) {
@@ -148,11 +150,11 @@ func TestGenerateReactiveUpdateCodeMultipleWatches(t *testing.T) {
 		{Field: "self.mana", Body: "update_mana_bar();"},
 	}
 	code := GenerateReactiveUpdateCode(fields, watches)
-	if !strings.Contains(code, "self._health_prev") {
-		t.Errorf("missing _health_prev: %s", code)
+	if !strings.Contains(code, "_fyx_health_changed") {
+		t.Errorf("missing health change flag: %s", code)
 	}
-	if !strings.Contains(code, "self._mana_prev") {
-		t.Errorf("missing _mana_prev: %s", code)
+	if !strings.Contains(code, "_fyx_mana_changed") {
+		t.Errorf("missing mana change flag: %s", code)
 	}
 	if !strings.Contains(code, "update_health_bar();") {
 		t.Errorf("missing health watch body: %s", code)
@@ -190,10 +192,84 @@ func TestTranspileReactive(t *testing.T) {
 	if !strings.Contains(code, "self.is_critical = self.health < 20.0") {
 		t.Errorf("missing derived recompute: %s", code)
 	}
-	if !strings.Contains(code, "_is_critical_prev") {
-		t.Errorf("missing watch dirty-check: %s", code)
+	if !strings.Contains(code, "_fyx_is_critical_changed") {
+		t.Errorf("missing derived change tracking: %s", code)
 	}
 	if !strings.Contains(code, "_health_prev") {
 		t.Errorf("missing reactive prev update: %s", code)
+	}
+}
+
+func TestGenerateReactiveUpdateCodeDerivedChain(t *testing.T) {
+	fields := []ast.Field{
+		{Modifier: ast.FieldReactive, Name: "health", TypeExpr: "f32", Default: "100.0"},
+		{Modifier: ast.FieldDerived, Name: "health_pct", TypeExpr: "f32", Default: "self.health / 100.0"},
+		{Modifier: ast.FieldDerived, Name: "is_critical", TypeExpr: "bool", Default: "self.health_pct < 0.2"},
+	}
+
+	code := GenerateReactiveUpdateCode(fields, nil)
+	if !strings.Contains(code, "let _fyx_health_pct_changed = if _fyx_health_changed {") {
+		t.Errorf("first derived field should be gated by reactive dependency changes: %s", code)
+	}
+	if !strings.Contains(code, "let _fyx_is_critical_changed = if _fyx_health_pct_changed {") {
+		t.Errorf("derived chains should gate on upstream derived change flags: %s", code)
+	}
+}
+
+func TestGenerateReactiveUpdateCodeDerivedChainOutOfOrder(t *testing.T) {
+	fields := []ast.Field{
+		{Modifier: ast.FieldReactive, Name: "health", TypeExpr: "f32", Default: "100.0"},
+		{Modifier: ast.FieldDerived, Name: "is_critical", TypeExpr: "bool", Default: "self.health_pct < 0.2"},
+		{Modifier: ast.FieldDerived, Name: "health_pct", TypeExpr: "f32", Default: "self.health / 100.0"},
+	}
+
+	code := GenerateReactiveUpdateCode(fields, nil)
+	pctIdx := strings.Index(code, "let _fyx_health_pct_changed")
+	criticalIdx := strings.Index(code, "let _fyx_is_critical_changed")
+	if pctIdx < 0 || criticalIdx < 0 {
+		t.Fatalf("missing derived change blocks: %s", code)
+	}
+	if pctIdx > criticalIdx {
+		t.Fatalf("derived recompute order should follow dependencies, got:\n%s", code)
+	}
+	if !strings.Contains(code, "let _fyx_is_critical_changed = if _fyx_health_pct_changed {") {
+		t.Fatalf("out-of-order derived field should still gate on upstream derived change flag: %s", code)
+	}
+}
+
+func TestGenerateReactiveUpdateCodeFallsBackToUngatedDerivedWhenDepsAreNotTracked(t *testing.T) {
+	fields := []ast.Field{
+		{Modifier: ast.FieldInspect, Name: "max_health", TypeExpr: "f32", Default: "100.0"},
+		{Modifier: ast.FieldReactive, Name: "health", TypeExpr: "f32", Default: "100.0"},
+		{Modifier: ast.FieldDerived, Name: "health_pct", TypeExpr: "f32", Default: "self.health / self.max_health"},
+	}
+
+	code := GenerateReactiveUpdateCode(fields, nil)
+	if !strings.Contains(code, "let _fyx_health_pct_changed = {") {
+		t.Errorf("derived fields with non-reactive dependencies should use ungated recompute blocks: %s", code)
+	}
+	if strings.Contains(code, "let _fyx_health_pct_changed = if") {
+		t.Errorf("derived fields with inspect dependencies should not gate on incomplete change tracking: %s", code)
+	}
+}
+
+func TestTranspileScriptDerivedDefaultsFollowDependencyOrder(t *testing.T) {
+	s := ast.Script{
+		Name: "Vitals",
+		Fields: []ast.Field{
+			{Modifier: ast.FieldReactive, Name: "health", TypeExpr: "f32", Default: "100.0"},
+			{Modifier: ast.FieldDerived, Name: "is_critical", TypeExpr: "bool", Default: "self.health_pct < 0.2"},
+			{Modifier: ast.FieldDerived, Name: "health_pct", TypeExpr: "f32", Default: "self.health / 100.0"},
+		},
+	}
+
+	out := TranspileScript(s)
+	pctIdx := strings.Index(out, "value.health_pct = value.health / 100.0;")
+	criticalIdx := strings.Index(out, "value.is_critical = value.health_pct < 0.2;")
+	if pctIdx < 0 || criticalIdx < 0 {
+		t.Fatalf("missing derived default initialization lines: %s", out)
+	}
+	if pctIdx > criticalIdx {
+		t.Fatalf("derived default initialization should follow dependencies: %s", out)
 	}
 }

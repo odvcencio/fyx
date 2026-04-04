@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/odvcencio/fyx/ast"
 )
@@ -105,7 +106,7 @@ func TranspileConnectSubscriptions(connects []ast.Connect) string {
 //	}
 //
 // Multiple connect blocks produce chained if-let blocks.
-func TranspileConnectDispatch(connects []ast.Connect, signalIndex SignalIndex) string {
+func TranspileConnectDispatch(connects []ast.Connect, currentScript string, fields []ast.Field, signalIndex SignalIndex) string {
 	if len(connects) == 0 {
 		return ""
 	}
@@ -129,6 +130,10 @@ func TranspileConnectDispatch(connects []ast.Connect, signalIndex SignalIndex) s
 
 		body := strings.TrimSpace(c.Body)
 		if body != "" {
+			body = RewriteBody(body, currentScript, fields, ast.HandlerMessage)
+			body = RewriteEmitStatements(body, currentScript, signalIndex)
+		}
+		if body != "" {
 			for _, line := range strings.Split(body, "\n") {
 				e.Line(strings.TrimRight(line, " \t"))
 			}
@@ -140,48 +145,53 @@ func TranspileConnectDispatch(connects []ast.Connect, signalIndex SignalIndex) s
 	return e.String()
 }
 
-// emitPrefixRe matches the beginning of an emit statement: `emit SIGNAL_NAME(`
+// emitPrefixRe matches the beginning of an emit statement:
+//   - `emit SIGNAL_NAME(`
+//   - `emit ScriptName::signal_name(`
+//
 // The actual argument list is extracted by balanced-paren scanning, not regex.
-var emitPrefixRe = regexp.MustCompile(`emit\s+(\w+)\(`)
+var emitPrefixRe = regexp.MustCompile(`emit\s+([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)?)\(`)
 
 // RewriteEmitStatements rewrites `emit` statements in handler bodies to Rust message sends.
 //
 // Fyx:
 //
 //	emit died(self.position())
-//	emit damaged(10.0, ctx.handle) to target
+//	emit Enemy::damaged(amount: 10.0, source: ctx.handle) to target
 //
 // Becomes:
 //
 //	ctx.message_sender.send_global(EnemyDiedMsg { position: self.position() });
 //	ctx.message_sender.send_to_target(target, EnemyDamagedMsg { amount: 10.0, source: ctx.handle });
 //
-// The function uses the signal definitions to map positional arguments to named fields.
+// The function uses the project signal index to resolve bare local emits and
+// script-qualified emits, mapping positional arguments to named fields.
 // It handles nested parentheses in arguments (e.g., self.position()).
-func RewriteEmitStatements(body string, scriptName string, signals []ast.Signal) string {
-	// Build a lookup map from signal name to its parameter list.
-	sigMap := make(map[string][]ast.Param)
-	for _, sig := range signals {
-		sigMap[sig.Name] = sig.Params
-	}
-
-	// Process emit statements by finding the prefix and then scanning for balanced parens.
+func RewriteEmitStatements(body string, currentScript string, signalIndex SignalIndex) string {
 	result := body
+	searchFrom := 0
 	for {
-		loc := emitPrefixRe.FindStringIndex(result)
+		loc := emitPrefixRe.FindStringSubmatchIndex(result[searchFrom:])
 		if loc == nil {
 			break
 		}
 
-		prefix := result[:loc[0]]
-		match := emitPrefixRe.FindStringSubmatch(result[loc[0]:])
-		sigName := match[1]
+		start := searchFrom + loc[0]
+		end := searchFrom + loc[1]
+		signalRef := result[searchFrom+loc[2] : searchFrom+loc[3]]
+		declScript, sigName := resolveEmitSignalRef(signalRef, currentScript)
+		params := signalParamsFor(signalIndex, declScript, sigName)
+		if params == nil {
+			searchFrom = end
+			continue
+		}
 
 		// Find the balanced closing paren starting after the opening paren.
-		argsStart := loc[0] + len(match[0])
+		argsStart := end
 		closeIdx := findBalancedParen(result, argsStart)
 		if closeIdx < 0 {
-			break // malformed, stop processing
+			searchFrom = end
+			continue
 		}
 		argsStr := result[argsStart:closeIdx]
 
@@ -190,27 +200,31 @@ func RewriteEmitStatements(body string, scriptName string, signals []ast.Signal)
 		rest = strings.TrimLeft(rest, " \t")
 
 		var replacement string
-		msgName := signalMsgName(scriptName, sigName)
-		fields := buildMsgFields(sigMap[sigName], argsStr)
+		msgName := signalMsgName(declScript, sigName)
+		fields := buildMsgFields(params, argsStr)
 
 		if strings.HasPrefix(rest, "to ") {
 			// Targeted emit: `emit SIGNAL(ARGS) to TARGET;`
 			afterTo := rest[3:]
 			semiIdx := strings.Index(afterTo, ";")
 			if semiIdx < 0 {
-				break // malformed
+				searchFrom = end
+				continue
 			}
 			target := strings.TrimSpace(afterTo[:semiIdx])
 			replacement = fmt.Sprintf("ctx.message_sender.send_to_target(%s, %s { %s });", target, msgName, fields)
-			result = prefix + replacement + afterTo[semiIdx+1:]
+			result = result[:start] + replacement + afterTo[semiIdx+1:]
+			searchFrom = start + len(replacement)
 		} else {
 			// Global emit: `emit SIGNAL(ARGS);`
 			semiIdx := strings.Index(rest, ";")
 			if semiIdx < 0 {
-				break // malformed
+				searchFrom = end
+				continue
 			}
 			replacement = fmt.Sprintf("ctx.message_sender.send_global(%s { %s });", msgName, fields)
-			result = prefix + replacement + rest[semiIdx+1:]
+			result = result[:start] + replacement + rest[semiIdx+1:]
+			searchFrom = start + len(replacement)
 		}
 	}
 
@@ -224,6 +238,10 @@ func buildMsgFields(params []ast.Param, argsStr string) string {
 	var fields []string
 	for i, arg := range args {
 		arg = strings.TrimSpace(arg)
+		if fieldName, value, ok := splitNamedSignalArg(arg); ok {
+			fields = append(fields, fmt.Sprintf("%s: %s", fieldName, value))
+			continue
+		}
 		if i < len(params) {
 			fields = append(fields, fmt.Sprintf("%s: %s", params[i].Name, arg))
 		} else {
@@ -232,4 +250,98 @@ func buildMsgFields(params []ast.Param, argsStr string) string {
 		}
 	}
 	return strings.Join(fields, ", ")
+}
+
+func resolveEmitSignalRef(signalRef, currentScript string) (scriptName string, signalName string) {
+	if before, after, ok := strings.Cut(signalRef, "::"); ok {
+		return before, after
+	}
+	return currentScript, signalRef
+}
+
+func splitNamedSignalArg(arg string) (fieldName string, value string, ok bool) {
+	idx := findTopLevelNamedArgColon(arg)
+	if idx < 0 {
+		return "", "", false
+	}
+
+	fieldName = strings.TrimSpace(arg[:idx])
+	value = strings.TrimSpace(arg[idx+1:])
+	if fieldName == "" || value == "" || !isValidRustIdent(fieldName) {
+		return "", "", false
+	}
+	return fieldName, value, true
+}
+
+func findTopLevelNamedArgColon(s string) int {
+	parenDepth := 0
+	braceDepth := 0
+	bracketDepth := 0
+	var quote byte
+	escaped := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch ch {
+		case '\'', '"':
+			quote = ch
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case '{':
+			braceDepth++
+		case '}':
+			if braceDepth > 0 {
+				braceDepth--
+			}
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+		case ':':
+			if parenDepth == 0 && braceDepth == 0 && bracketDepth == 0 {
+				prevIsColon := i > 0 && s[i-1] == ':'
+				nextIsColon := i+1 < len(s) && s[i+1] == ':'
+				if !prevIsColon && !nextIsColon {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func isValidRustIdent(s string) bool {
+	for i, r := range s {
+		if i == 0 {
+			if r != '_' && !unicode.IsLetter(r) {
+				return false
+			}
+			continue
+		}
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return s != ""
 }
