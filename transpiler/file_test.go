@@ -18,6 +18,9 @@ func TestTranspileFile(t *testing.T) {
 		},
 	}
 	out := TranspileFile(file)
+	if !strings.Contains(out, "use fyrox::plugin::error::GameResult;") {
+		t.Errorf("missing generated fyrox prelude: %s", out)
+	}
 	if !strings.Contains(out, "use fyrox::prelude::*;") {
 		t.Errorf("missing use statement: %s", out)
 	}
@@ -32,6 +35,22 @@ func TestTranspileFile(t *testing.T) {
 	}
 	if !strings.Contains(out, `add::<Player>("Player")`) {
 		t.Errorf("missing Player registration: %s", out)
+	}
+}
+
+func TestTranspileFileInjectsPreludeWithoutUserImports(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{Name: "Player"},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "use fyrox::core::reflect::prelude::*;") {
+		t.Fatalf("missing generated reflect prelude: %s", out)
+	}
+	if !strings.Contains(out, "use fyrox::script::{ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload, ScriptTrait};") {
+		t.Fatalf("missing generated script imports: %s", out)
 	}
 }
 

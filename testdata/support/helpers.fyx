@@ -13,7 +13,7 @@ pub fn spread_for_heat(heat: f32) -> f32 {
 }
 
 pub fn aim_direction(node: &NodeRef) -> Vector3 {
-    node.look_direction().normalized()
+    node.look_vector().normalized()
 }
 
 pub struct ShotPlan {

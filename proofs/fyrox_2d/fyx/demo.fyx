@@ -1,0 +1,180 @@
+use fyrox::asset::manager::ResourceManager;
+use fyrox::core::algebra::UnitQuaternion;
+use fyrox::core::algebra::Vector3;
+use fyrox::event::ElementState;
+use fyrox::keyboard::KeyCode;
+use fyrox::keyboard::PhysicalKey;
+use fyrox::material::Material;
+use fyrox::material::MaterialResource;
+use fyrox::plugin::Plugin;
+use fyrox::resource::texture::Texture;
+use fyrox::scene::Scene;
+use fyrox::scene::base::BaseBuilder;
+use fyrox::scene::camera::CameraBuilder;
+use fyrox::scene::camera::OrthographicProjection;
+use fyrox::scene::camera::Projection;
+use fyrox::scene::dim2::rectangle::RectangleBuilder;
+use fyrox::scene::light::BaseLightBuilder;
+use fyrox::scene::light::point::PointLightBuilder;
+use fyrox::scene::light::spot::SpotLightBuilder;
+use fyrox::scene::transform::TransformBuilder;
+
+fn crate_texture_path() -> &'static str {
+    concat!(env!("CARGO_MANIFEST_DIR"), "/data/Crate.png")
+}
+
+fn build_scene(resource_manager: ResourceManager) -> Scene {
+    let mut scene = Scene::new();
+
+    CameraBuilder::new(
+        BaseBuilder::new()
+            .with_name("Camera")
+            .with_script(CameraRig {
+                move_speed: 1.5,
+                ..Default::default()
+            }),
+    )
+    .with_projection(Projection::Orthographic(OrthographicProjection {
+        z_near: -0.1,
+        z_far: 16.0,
+        vertical_size: 2.0,
+    }))
+    .build(&mut scene.graph);
+
+    let mut material = Material::standard_2d();
+    material.bind(
+        "diffuseTexture",
+        resource_manager.request::<Texture>(crate_texture_path()),
+    );
+    let material = MaterialResource::new_embedded(material);
+
+    for y in 0..10 {
+        for x in 0..10 {
+            let sprite_size = 0.35;
+            let spacing = 0.1;
+            RectangleBuilder::new(
+                BaseBuilder::new().with_local_transform(
+                    TransformBuilder::new()
+                        .with_local_position(Vector3::new(
+                            0.1 + x as f32 * (sprite_size + spacing),
+                            0.1 + y as f32 * (sprite_size + spacing),
+                            0.0,
+                        ))
+                        .with_local_scale(Vector3::new(sprite_size, sprite_size, f32::EPSILON))
+                        .build(),
+                ),
+            )
+            .with_material(material.clone())
+            .build(&mut scene.graph);
+        }
+    }
+
+    PointLightBuilder::new(
+        BaseLightBuilder::new(
+            BaseBuilder::new().with_local_transform(
+                TransformBuilder::new()
+                    .with_local_position(Vector3::new(2.5, 2.5, 0.0))
+                    .build(),
+            ),
+        )
+        .with_scatter_enabled(false),
+    )
+    .with_radius(1.0)
+    .build(&mut scene.graph);
+
+    SpotLightBuilder::new(
+        BaseLightBuilder::new(
+            BaseBuilder::new()
+                .with_name("Spinner")
+                .with_local_transform(
+                    TransformBuilder::new()
+                        .with_local_position(Vector3::new(3.0, 1.0, 0.0))
+                        .build(),
+                )
+                .with_script(SpotSpinner {
+                    rotation_speed: 1.0f32.to_radians(),
+                }),
+        )
+        .with_scatter_enabled(false),
+    )
+    .with_distance(2.0)
+    .build(&mut scene.graph);
+
+    scene
+}
+
+#[derive(Default, Visit, Reflect, Debug)]
+#[reflect(non_cloneable)]
+pub struct Demo2DGame;
+
+impl Plugin for Demo2DGame {
+    fn register(&self, mut context: PluginRegistrationContext) -> GameResult {
+        register_scripts(&mut context);
+        Ok(())
+    }
+
+    fn init(&mut self, _scene_path: Option<&str>, context: PluginContext) -> GameResult {
+        let _scene = context.scenes.add(build_scene(context.resource_manager.clone()));
+        Ok(())
+    }
+}
+
+script CameraRig {
+    inspect move_speed: f32 = 1.5
+
+    move_forward: bool
+    move_backward: bool
+    move_left: bool
+    move_right: bool
+
+    on event(ctx) {
+        if let Event::WindowEvent {
+            event: WindowEvent::KeyboardInput { event: input, .. },
+            ..
+        } = event
+        {
+            if let PhysicalKey::Code(code) = input.physical_key {
+                match code {
+                    KeyCode::KeyW => self.move_forward = input.state == ElementState::Pressed,
+                    KeyCode::KeyS => self.move_backward = input.state == ElementState::Pressed,
+                    KeyCode::KeyA => self.move_left = input.state == ElementState::Pressed,
+                    KeyCode::KeyD => self.move_right = input.state == ElementState::Pressed,
+                    _ => (),
+                }
+            }
+        }
+    }
+
+    on update(ctx) {
+        let mut offset = Vector3::default();
+        if self.move_forward {
+            offset.y += 1.0;
+        }
+        if self.move_backward {
+            offset.y -= 1.0;
+        }
+        if self.move_left {
+            offset.x += 1.0;
+        }
+        if self.move_right {
+            offset.x -= 1.0;
+        }
+
+        if let Some(offset) = offset.try_normalize(f32::EPSILON) {
+            self.node
+                .local_transform_mut()
+                .offset(offset.scale(self.move_speed * dt));
+        }
+    }
+}
+
+script SpotSpinner {
+    inspect rotation_speed: f32 = 1.0f32.to_radians()
+
+    on update(ctx) {
+        let local_transform = self.node.local_transform_mut();
+        let new_rotation = **local_transform.rotation()
+            * UnitQuaternion::from_euler_angles(0.0, 0.0, self.rotation_speed * dt);
+        local_transform.set_rotation(new_rotation);
+    }
+}

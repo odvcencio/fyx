@@ -79,24 +79,12 @@ func emitStruct(e *RustEmitter, s ast.Script) {
 // emitFieldAnnotations emits the attribute annotations for a field based on its modifier.
 func emitFieldAnnotations(e *RustEmitter, f ast.Field) {
 	switch f.Modifier {
-	case ast.FieldInspect:
-		e.LineWithSource("#[reflect(expand)]", f.Line)
-	case ast.FieldReactive:
-		// Reactive fields are visible in the inspector like inspect fields.
-		// Reactive tracking will be added in Task 14.
-		e.LineWithSource("#[reflect(expand)]", f.Line)
 	case ast.FieldBare:
 		e.LineWithSource("#[reflect(hidden)]", f.Line)
 		e.LineWithSource("#[visit(skip)]", f.Line)
 	case ast.FieldDerived:
 		e.LineWithSource("#[reflect(hidden)]", f.Line)
 		e.LineWithSource("#[visit(skip)]", f.Line)
-	case ast.FieldNode:
-		e.LineWithSource("#[reflect(expand)]", f.Line)
-	case ast.FieldNodes:
-		e.LineWithSource("#[reflect(expand)]", f.Line)
-	case ast.FieldResource:
-		e.LineWithSource("#[reflect(expand)]", f.Line)
 	}
 }
 
@@ -217,7 +205,8 @@ func emitMergedOnStart(e *RustEmitter, fields []ast.Field, h ast.Handler, script
 	if line == 0 {
 		line = 1
 	}
-	e.LineWithSource("fn on_start(&mut self, ctx: &mut ScriptContext) {", line)
+	e.LineWithSource("#[allow(unused_variables)]", line)
+	e.LineWithSource("fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {", line)
 	e.Indent()
 
 	for _, f := range fields {
@@ -228,9 +217,10 @@ func emitMergedOnStart(e *RustEmitter, fields []ast.Field, h ast.Handler, script
 
 	userBody := strings.TrimSpace(h.Body)
 	if userBody != "" {
-		emitHandlerBody(e, userBody, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, userBody, h.BodyLine, fields, h.Kind, scriptName)
 	}
 
+	e.LineWithSource("Ok(())", line)
 	e.Dedent()
 	e.LineWithSource("}", line)
 }
@@ -239,30 +229,38 @@ func emitMergedOnStart(e *RustEmitter, fields []ast.Field, h ast.Handler, script
 func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName string, opts Options) {
 	switch h.Kind {
 	case ast.HandlerInit:
-		e.LineWithSource("fn on_init(&mut self, ctx: &mut ScriptContext) {", h.Line)
+		e.LineWithSource("#[allow(unused_variables)]", h.Line)
+		e.LineWithSource("fn on_init(&mut self, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
 
 	case ast.HandlerStart:
-		e.LineWithSource("fn on_start(&mut self, ctx: &mut ScriptContext) {", h.Line)
+		e.LineWithSource("#[allow(unused_variables)]", h.Line)
+		e.LineWithSource("fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
 
 	case ast.HandlerUpdate:
-		e.LineWithSource("fn on_update(&mut self, ctx: &mut ScriptContext) {", h.Line)
+		e.LineWithSource("#[allow(unused_variables)]", h.Line)
+		e.LineWithSource("fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
 
 	case ast.HandlerDeinit:
-		e.LineWithSource("fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) {", h.Line)
+		e.LineWithSource("#[allow(unused_variables)]", h.Line)
+		e.LineWithSource("fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
 
@@ -270,9 +268,11 @@ func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName s
 		emitEventHandler(e, h, fields, scriptName)
 
 	case ast.HandlerMessage:
-		e.LineWithSource("fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) {", h.Line)
+		e.LineWithSource("#[allow(unused_variables)]", h.Line)
+		e.LineWithSource("fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
 	}
@@ -280,7 +280,8 @@ func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName s
 
 // emitEventHandler emits an OS event handler with if-let matching on the event type.
 func emitEventHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName string) {
-	e.LineWithSource("fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) {", h.Line)
+	e.LineWithSource("#[allow(unused_variables)]", h.Line)
+	e.LineWithSource("fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 	e.Indent()
 
 	// Look for a typed event parameter (e.g., "ev: KeyboardInput")
@@ -297,13 +298,25 @@ func emitEventHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptN
 		e.Indent()
 		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
 		e.Dedent()
-		e.LineWithSource("}", h.Line)
+		e.LineWithSource("};", h.Line)
 	} else {
-		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
 	}
 
+	e.LineWithSource("Ok(())", h.Line)
 	e.Dedent()
 	e.LineWithSource("}", h.Line)
+}
+
+func emitHandlerBodyBlock(e *RustEmitter, body string, sourceLine int, fields []ast.Field, kind ast.HandlerKind, scriptName string) {
+	if strings.TrimSpace(body) == "" {
+		return
+	}
+	e.LineWithSource("{", sourceLine)
+	e.Indent()
+	emitHandlerBody(e, body, sourceLine, fields, kind, scriptName)
+	e.Dedent()
+	e.LineWithSource("};", sourceLine)
 }
 
 // emitHandlerBody emits the body of a handler, line by line, with source mapping.

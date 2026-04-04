@@ -9,9 +9,23 @@
 [![CI](https://github.com/odvcencio/fyx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/odvcencio/fyx/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 
-Fyx is a scripting language built specifically for the [Fyrox](https://github.com/FyroxEngine/Fyrox) engine. It removes a lot of the repetitive glue around scripts, signals, reactive state, node binding, and ECS, but it does not hide the engine behind another VM or a fake type system.
+Fyx is a scripting language built specifically for the [Fyrox](https://github.com/FyroxEngine/Fyrox) engine. It removes the repetitive glue around scripts, signals, reactive state, node binding, and ECS, without hiding the real engine behind a VM or an invented type system.
 
-`.fyx` files transpile to ordinary Rust modules. Top-level Rust items pass through unchanged. Cargo still checks the result. The language surface is meant to be convenient on day one and deep on day one hundred.
+`.fyx` files transpile to ordinary Rust modules. Top-level Rust items pass through unchanged. Cargo still checks the result. The goal is simple: convenient authoring on day one, real depth on day one hundred.
+
+## The Standard
+
+The real test for a Fyrox scripting language is not whether it can transpile toy fixtures. It is whether it can take a real Fyrox demo and recreate it as a `.fyx` project.
+
+Fyx now does that.
+
+[`proofs/fyrox_2d/fyx/demo.fyx`](proofs/fyrox_2d/fyx/demo.fyx) recreates Fyrox's official [`examples/2d.rs`](https://github.com/FyroxEngine/Fyrox/blob/master/examples/2d.rs) as a Fyx-authored project. The proof crate compiles the generated Rust against the real engine with `fyrox = 1.0.1`, using a normal Cargo build:
+
+```bash
+cargo check --manifest-path proofs/fyrox_2d/Cargo.toml
+```
+
+That matters more than any slogan. It means Fyx is already being forced through real Fyrox APIs, real scene construction, real scripts, and real Cargo validation.
 
 ## Why This Exists
 
@@ -36,7 +50,9 @@ That matters because it changes what “depth” means:
 
 - A simple `.fyx` file can stay small and ergonomic.
 - A large `.fyx` project can grow into multiple modules and Rust helper files without abandoning the language.
-- The escape hatch is not a rewrite. It is the same toolchain.
+- The escape hatch is not a rewrite. It is the same file and the same toolchain.
+
+If you want pure sugar, it is there. If you want to drop into raw Fyrox and Rust in the middle of a gameplay file, that is there too.
 
 ## What It Looks Like
 
@@ -167,10 +183,11 @@ If you outgrow the sugar, you do not leave Fyx. You lean harder on Rust.
 
 ## Proof, Not Hype
 
-The current repo already tests the pipeline in layers, not only through hand-wavy examples:
+The current repo tests the pipeline in layers, not only through small examples:
 
 - `116` Go tests across grammar, AST construction, transpiler codegen, CLI validation, and end-to-end fixtures.
 - `9` Rust runtime tests in [`runtime/`](runtime/).
+- A real proof crate in [`proofs/fyrox_2d/`](proofs/fyrox_2d/) that compiles a Fyx-authored port of Fyrox's 2D demo against the real engine.
 - Coverage from the current run:
   - `grammar`: `97.9%`
   - `transpiler`: `92.0%`
@@ -203,9 +220,18 @@ The practical confidence check is this:
 go test ./...
 cd runtime && cargo test && cd ..
 go run ./cmd/fyxc check testdata --cargo-check
+cargo check --manifest-path proofs/fyrox_2d/Cargo.toml
 ```
 
-If those pass, the grammar, AST, transpiler, runtime bridge, and generated Rust validation all agree with each other.
+If those pass, the grammar, AST, transpiler, runtime bridge, generated Rust validation, and real-engine proof crate all agree with each other.
+
+For a local smoke run on Linux:
+
+```bash
+cargo run --manifest-path proofs/fyrox_2d/Cargo.toml
+```
+
+That launches the same ported scene as a normal Fyrox executable.
 
 ## Quick Start
 
@@ -217,6 +243,7 @@ go install github.com/odvcencio/fyx/cmd/fyxc@latest
 go test ./...
 cd runtime && cargo test && cd ..
 go run ./cmd/fyxc check testdata --cargo-check
+cargo check --manifest-path proofs/fyrox_2d/Cargo.toml
 go run ./cmd/fyxc build testdata --out generated
 ```
 
@@ -231,6 +258,7 @@ go run ./cmd/fyxc build testdata --out generated
 Fyx should feel at home next to Fyrox's own examples and demo projects, not like a parallel ecosystem.
 
 - Fyx examples live in [`examples/`](examples/)
+- Fyx proof projects live in [`proofs/`](proofs/)
 - Official Fyrox examples live in [`Fyrox/examples`](https://github.com/FyroxEngine/Fyrox/tree/master/examples)
 - Official Fyrox demo projects are listed at [fyrox.rs/examples.html](https://fyrox.rs/examples.html)
 - The Fyrox editor and engine repo provide the visual and workflow standard Fyx is aiming to match
@@ -241,6 +269,7 @@ The local examples are intentionally split into two categories:
   - [`examples/weapon/weapon.fyx`](examples/weapon/weapon.fyx)
   - [`examples/npc_brain/brain.fyx`](examples/npc_brain/brain.fyx)
 - A larger CI-backed gameplay fixture in [`testdata/depth.fyx`](testdata/depth.fyx) plus [`testdata/support/helpers.fyx`](testdata/support/helpers.fyx) for “can this scale?” proof
+- A real-engine proof crate in [`proofs/fyrox_2d/`](proofs/fyrox_2d/) for “can this recreate an actual Fyrox demo?” proof
 
 ## Current Status
 
@@ -262,12 +291,13 @@ The local examples are intentionally split into two categories:
 - `fyxc build` and `fyxc check`
 - First-pass Arbiter preservation and `.arb` sidecars
 - Basic editor assets for highlighting
+- Real-engine proof crate recreating Fyrox's 2D demo in `.fyx`
 
 ### Next To Truly Feel Native
 
 - `fyrox-template --lang fyx`
 - Deeper Fyroxed integration beyond shipped highlighting assets
-- Real flagship Fyrox sample projects authored in Fyx
+- More flagship Fyrox sample projects authored in Fyx
 - Hot reload / watch mode
 - LSP
 - Deeper Arbiter runtime wiring than preserved bundles
@@ -280,6 +310,7 @@ The local examples are intentionally split into two categories:
 - `cmd/fyxc/`: compiler CLI and validation harness
 - `runtime/`: Rust runtime crate
 - `examples/`: small authoring examples
+- `proofs/`: real-engine proof projects
 - `queries/` and `editors/`: editor-facing assets
 
 ## Docs
@@ -287,6 +318,7 @@ The local examples are intentionally split into two categories:
 - [Architecture](docs/architecture.md)
 - [Contributing](CONTRIBUTING.md)
 - [Examples](examples/README.md)
+- [Proofs](proofs/README.md)
 - [Fyrox Book](https://fyrox-book.github.io/)
 
 ## License

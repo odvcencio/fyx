@@ -1,3 +1,27 @@
+#[allow(unused_imports)]
+use fyrox::asset::Resource;
+#[allow(unused_imports)]
+use fyrox::core::pool::Handle;
+#[allow(unused_imports)]
+use fyrox::core::reflect::prelude::*;
+#[allow(unused_imports)]
+use fyrox::core::type_traits::prelude::*;
+#[allow(unused_imports)]
+use fyrox::core::visitor::prelude::*;
+#[allow(unused_imports)]
+use fyrox::event::{Event, WindowEvent};
+#[allow(unused_imports)]
+use fyrox::plugin::error::GameResult;
+#[allow(unused_imports)]
+use fyrox::plugin::{PluginContext, PluginRegistrationContext};
+#[allow(unused_imports)]
+use fyrox::resource::model::Model;
+#[allow(unused_imports)]
+use fyrox::scene::node::Node;
+#[allow(unused_imports)]
+use fyrox::script::{ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload, ScriptTrait};
+
+
 pub const FYX_ARBITER_BUNDLE: &str = r#"source npc_senses {
     path sensor://vision
 }
@@ -40,8 +64,12 @@ impl Default for SpawnBridge {
 }
 
 impl ScriptTrait for SpawnBridge {
-    fn on_update(&mut self, ctx: &mut ScriptContext) {
-        let spawned = ctx.ecs.spawn((SpawnedTag { active: true },));
+    #[allow(unused_variables)]
+    fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {
+        {
+            let spawned = ctx.ecs.spawn((SpawnedTag { active: true },));
+        };
+        Ok(())
     }
 }
 

@@ -229,9 +229,72 @@ use std::ops::{Index, IndexMut};
 
 pub use fyxc_check_macros::{reflect, type_uuid, visit, ComponentProvider, Reflect, TypeUuidProvider, Visit};
 
+#[derive(Default, Clone, Debug)]
+pub struct GameError;
+pub type GameResult = Result<(), GameError>;
+
 pub mod fyrox {
+    pub mod asset {
+        pub use crate::Resource;
+    }
+
+    pub mod core {
+        pub mod pool {
+            pub use crate::Handle;
+        }
+
+        pub mod reflect {
+            pub mod prelude {
+                pub use crate::Reflect;
+            }
+        }
+
+        pub mod type_traits {
+            pub mod prelude {
+                pub use crate::{ComponentProvider, TypeUuidProvider};
+            }
+        }
+
+        pub mod visitor {
+            pub mod prelude {
+                pub use crate::Visit;
+            }
+        }
+    }
+
+    pub mod event {
+        pub use crate::{Event, WindowEvent};
+    }
+
+    pub mod plugin {
+        pub mod error {
+            pub use crate::GameResult;
+        }
+
+        pub use crate::{PluginContext, PluginRegistrationContext};
+    }
+
     pub mod prelude {
         pub use crate::*;
+    }
+
+    pub mod resource {
+        pub mod model {
+            pub use crate::Model;
+        }
+    }
+
+    pub mod scene {
+        pub mod node {
+            pub use crate::Node;
+        }
+    }
+
+    pub mod script {
+        pub use crate::{
+            ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload,
+            ScriptTrait,
+        };
     }
 }
 
@@ -312,9 +375,9 @@ impl<T> Default for Event<T> {
 pub struct NodeRef;
 impl NodeRef {
     pub fn global_position(&self) -> Vector3 { Vector3 }
-    pub fn look_direction(&self) -> Vector3 { Vector3 }
+    pub fn look_vector(&self) -> Vector3 { Vector3 }
     pub fn parent(&self) -> Handle<Node> { Handle::default() }
-    pub fn rotate_y(&mut self, _value: f32) {}
+    pub fn set_rotation_y(&mut self, _value: f32) {}
     pub fn set_visibility(&mut self, _value: bool) {}
     pub fn animate(&mut self, _value: &str) {}
     pub fn set_color(&mut self, _value: Color) {}
@@ -395,33 +458,32 @@ pub struct ScriptContext {
 
 #[derive(Default, Clone, Debug)]
 pub struct ScriptMessageContext {
+    pub dt: f32,
+    pub elapsed_time: f32,
     pub scene: Scene,
     pub handle: Handle<Node>,
     pub resource_manager: ResourceManager,
-    pub message_dispatcher: MessageDispatcher,
     pub message_sender: MessageSender,
     pub ecs: EcsWorld,
-    pub dt: f32,
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct ScriptDeinitContext {
+    pub elapsed_time: f32,
     pub scene: Scene,
-    pub handle: Handle<Node>,
+    pub node_handle: Handle<Node>,
     pub resource_manager: ResourceManager,
     pub message_sender: MessageSender,
-    pub message_dispatcher: MessageDispatcher,
     pub ecs: EcsWorld,
-    pub dt: f32,
 }
 
 pub trait ScriptTrait {
-    fn on_init(&mut self, _ctx: &mut ScriptContext) {}
-    fn on_start(&mut self, _ctx: &mut ScriptContext) {}
-    fn on_update(&mut self, _ctx: &mut ScriptContext) {}
-    fn on_deinit(&mut self, _ctx: &mut ScriptDeinitContext) {}
-    fn on_os_event(&mut self, _event: &Event<()>, _ctx: &mut ScriptContext) {}
-    fn on_message(&mut self, _message: &mut dyn ScriptMessagePayload, _ctx: &mut ScriptMessageContext) {}
+    fn on_init(&mut self, _ctx: &mut ScriptContext) -> GameResult { Ok(()) }
+    fn on_start(&mut self, _ctx: &mut ScriptContext) -> GameResult { Ok(()) }
+    fn on_update(&mut self, _ctx: &mut ScriptContext) -> GameResult { Ok(()) }
+    fn on_deinit(&mut self, _ctx: &mut ScriptDeinitContext) -> GameResult { Ok(()) }
+    fn on_os_event(&mut self, _event: &Event<()>, _ctx: &mut ScriptContext) -> GameResult { Ok(()) }
+    fn on_message(&mut self, _message: &mut dyn ScriptMessagePayload, _ctx: &mut ScriptMessageContext) -> GameResult { Ok(()) }
 }
 
 pub trait ScriptMessagePayload: Any {}

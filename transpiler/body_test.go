@@ -17,13 +17,13 @@ self.node.rotate_y(0.5);`
 	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].global_position()") {
 		t.Errorf("self.position() not rewritten: %s", out)
 	}
-	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].look_direction()") {
+	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].look_vector()") {
 		t.Errorf("self.forward() not rewritten: %s", out)
 	}
 	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].parent()") {
 		t.Errorf("self.parent() not rewritten: %s", out)
 	}
-	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].rotate_y(0.5)") {
+	if !strings.Contains(out, "ctx.scene.graph[ctx.handle].set_rotation_y(0.5)") {
 		t.Errorf("self.node not rewritten: %s", out)
 	}
 }

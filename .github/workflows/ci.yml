@@ -25,7 +25,9 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: runtime
+          workspaces: |
+            runtime
+            proofs/fyrox_2d
 
       - name: Run Go test suite
         run: go test ./...
@@ -36,3 +38,6 @@ jobs:
 
       - name: Validate generated Rust
         run: go run ./cmd/fyxc check testdata --cargo-check
+
+      - name: Compile Fyrox 2D proof crate
+        run: cargo check --manifest-path proofs/fyrox_2d/Cargo.toml

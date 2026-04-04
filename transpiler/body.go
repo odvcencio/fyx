@@ -12,12 +12,13 @@ import (
 var spawnRe = regexp.MustCompile(`spawn\s+(\S+)\s+at\s+(.+)`)
 var shorthandDtRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])dt\b`)
 var ecsSpawnPrefixRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])ecs\s*\.\s*spawn\s*\(`)
+var graphRotateYRe = regexp.MustCompile(`(ctx\.scene\.graph\[[^\]]+\])\.rotate_y\s*\(`)
 
 // RewriteBody transforms Fyx shortcuts in handler bodies to valid Rust.
 //
 // Self-node shortcuts:
 //   - self.position()  → ctx.scene.graph[ctx.handle].global_position()
-//   - self.forward()   → ctx.scene.graph[ctx.handle].look_direction()
+//   - self.forward()   → ctx.scene.graph[ctx.handle].look_vector()
 //   - self.parent()    → ctx.scene.graph[ctx.handle].parent()
 //   - self.node.METHOD(...)  → ctx.scene.graph[ctx.handle].METHOD(...)
 //   - self.node (standalone) → ctx.scene.graph[ctx.handle]
@@ -28,7 +29,11 @@ var ecsSpawnPrefixRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])ecs\s*\.\s*spawn\s
 //
 // Regular self.field access (e.g., self.speed) is NOT rewritten.
 func RewriteBody(body string, scriptName string, fields []ast.Field, kind ast.HandlerKind) string {
-	node := "ctx.scene.graph[ctx.handle]"
+	handleExpr := "ctx.handle"
+	if kind == ast.HandlerDeinit {
+		handleExpr = "ctx.node_handle"
+	}
+	node := "ctx.scene.graph[" + handleExpr + "]"
 
 	if kind == ast.HandlerUpdate && shorthandDtRe.MatchString(body) {
 		body = "let dt = ctx.dt;\n" + body
@@ -37,7 +42,7 @@ func RewriteBody(body string, scriptName string, fields []ast.Field, kind ast.Ha
 	// Order matters: replace self.node.METHOD before self.node (standalone).
 	// Replace self.position(), self.forward(), self.parent() first (specific shortcuts).
 	body = strings.ReplaceAll(body, "self.position()", node+".global_position()")
-	body = strings.ReplaceAll(body, "self.forward()", node+".look_direction()")
+	body = strings.ReplaceAll(body, "self.forward()", node+".look_vector()")
 	body = strings.ReplaceAll(body, "self.parent()", node+".parent()")
 
 	for _, f := range fields {
@@ -55,6 +60,7 @@ func RewriteBody(body string, scriptName string, fields []ast.Field, kind ast.Ha
 	// Use a regex to avoid replacing "self.node_something" or already-replaced "self.node.".
 	standaloneNodeRe := regexp.MustCompile(`self\.node\b`)
 	body = standaloneNodeRe.ReplaceAllString(body, node)
+	body = graphRotateYRe.ReplaceAllString(body, `${1}.set_rotation_y(`)
 
 	// Handle spawn syntax: spawn RESOURCE at POS
 	body = spawnRe.ReplaceAllStringFunc(body, func(match string) string {

@@ -1,3 +1,27 @@
+#[allow(unused_imports)]
+use fyrox::asset::Resource;
+#[allow(unused_imports)]
+use fyrox::core::pool::Handle;
+#[allow(unused_imports)]
+use fyrox::core::reflect::prelude::*;
+#[allow(unused_imports)]
+use fyrox::core::type_traits::prelude::*;
+#[allow(unused_imports)]
+use fyrox::core::visitor::prelude::*;
+#[allow(unused_imports)]
+use fyrox::event::{Event, WindowEvent};
+#[allow(unused_imports)]
+use fyrox::plugin::error::GameResult;
+#[allow(unused_imports)]
+use fyrox::plugin::{PluginContext, PluginRegistrationContext};
+#[allow(unused_imports)]
+use fyrox::resource::model::Model;
+#[allow(unused_imports)]
+use fyrox::scene::node::Node;
+#[allow(unused_imports)]
+use fyrox::script::{ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload, ScriptTrait};
+
+
 use super::support::helpers::*;
 
 
@@ -38,17 +62,11 @@ pub struct ShotOwner {
 #[type_uuid(id = "63be1f31-6d6f-f7b3-a520-630c121e9f3f")]
 #[visit(optional)]
 pub struct TurretController {
-    #[reflect(expand)]
     pub range: f32,
-    #[reflect(expand)]
     pub cooldown_time: f32,
-    #[reflect(expand)]
     pub turn_rate: f32,
-    #[reflect(expand)]
     pub pivot: Handle<Node>,
-    #[reflect(expand)]
     pub muzzle: Handle<Node>,
-    #[reflect(expand)]
     pub heat: f32,
     #[reflect(hidden)]
     #[visit(skip)]
@@ -94,53 +112,71 @@ impl Default for TurretController {
 }
 
 impl ScriptTrait for TurretController {
-    fn on_init(&mut self, ctx: &mut ScriptContext) {
-        self.plan = ShotPlan::for_heat(self.heat);
+    #[allow(unused_variables)]
+    fn on_init(&mut self, ctx: &mut ScriptContext) -> GameResult {
+        {
+            self.plan = ShotPlan::for_heat(self.heat);
+        };
+        Ok(())
     }
 
-    fn on_start(&mut self, ctx: &mut ScriptContext) {
+    #[allow(unused_variables)]
+    fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {
         self.pivot = ctx.scene.graph.find_by_name_from_root("Turret/Pivot")
             .map(|(h, _)| h)
             .unwrap_or_default();
         self.muzzle = ctx.scene.graph.find_by_name_from_root("Turret/Muzzle")
             .map(|(h, _)| h)
             .unwrap_or_default();
-        self.cooldown = 0.0;
+        {
+            self.cooldown = 0.0;
+        };
+        Ok(())
     }
 
-    fn on_update(&mut self, ctx: &mut ScriptContext) {
-        let dt = ctx.dt;
-        self.cooldown -= dt;
-                self.heat = cool_heat(self.heat, dt);
-                self.plan = ShotPlan::for_heat(self.heat);
-
-                let origin = ctx.scene.graph[self.muzzle].global_position();
-                let direction = aim_direction(&ctx.scene.graph[self.muzzle]);
-
-                if self.cooldown <= 0.0 && !self.overheated && target_visible(&ctx.scene, origin, direction, self.range) {
-                    ctx.message_sender.send_global(TurretControllerFiredMsg { origin: origin, direction: direction });
-                    self.cooldown = self.cooldown_time;
-                    self.heat += 0.35;
-                    ctx.message_sender.send_global(TurretControllerHeatChangedMsg { value: self.heat });
-                    self.shots_fired += 1;
-                    let _heat_marker = ctx.ecs.spawn((HeatTrail { heat: self.heat, ttl: 0.5 }, ShotOwner { node: self.muzzle }));
-                }
-
-        self.overheated = self.heat >= 1.0;
-
-        self._heat_prev = self.heat.clone();
+    #[allow(unused_variables)]
+    fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {
+        {
+            let dt = ctx.dt;
+            self.cooldown -= dt;
+                    self.heat = cool_heat(self.heat, dt);
+                    self.plan = ShotPlan::for_heat(self.heat);
+            
+                    let origin = ctx.scene.graph[self.muzzle].global_position();
+                    let direction = aim_direction(&ctx.scene.graph[self.muzzle]);
+            
+                    if self.cooldown <= 0.0 && !self.overheated && target_visible(&ctx.scene, origin, direction, self.range) {
+                        ctx.message_sender.send_global(TurretControllerFiredMsg { origin: origin, direction: direction });
+                        self.cooldown = self.cooldown_time;
+                        self.heat += 0.35;
+                        ctx.message_sender.send_global(TurretControllerHeatChangedMsg { value: self.heat });
+                        self.shots_fired += 1;
+                        let _heat_marker = ctx.ecs.spawn((HeatTrail { heat: self.heat, ttl: 0.5 }, ShotOwner { node: self.muzzle }));
+                    }
+            
+            self.overheated = self.heat >= 1.0;
+            
+            self._heat_prev = self.heat.clone();
+        };
+        Ok(())
     }
 
-    fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) {
+    #[allow(unused_variables)]
+    fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {
         if let Event::WindowEvent { event: WindowEvent::MouseButton(button), .. } = event {
             let _ = button;
-                    ctx.scene.graph[self.pivot].rotate_y(self.turn_rate * 0.25);
-        }
+                    ctx.scene.graph[self.pivot].set_rotation_y(self.turn_rate * 0.25);
+        };
+        Ok(())
     }
 
-    fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) {
-        let _ = ctx.dt;
-                self.cooldown = 0.0;
+    #[allow(unused_variables)]
+    fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) -> GameResult {
+        {
+            let _ = ctx.elapsed_time;
+                    self.cooldown = 0.0;
+        };
+        Ok(())
     }
 }
 
@@ -149,11 +185,8 @@ impl ScriptTrait for TurretController {
 #[type_uuid(id = "1c1de7be-472e-2fc7-3ea9-26c1eefee752")]
 #[visit(optional)]
 pub struct TurretHud {
-    #[reflect(expand)]
     pub heat_bar: Handle<Node>,
-    #[reflect(expand)]
     pub status_label: Handle<Node>,
-    #[reflect(expand)]
     pub visible_heat: f32,
     #[reflect(hidden)]
     #[visit(skip)]
@@ -184,48 +217,60 @@ impl Default for TurretHud {
 }
 
 impl ScriptTrait for TurretHud {
-    fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) {
-        let _ = (&mut *message, ctx.dt);
-
-        if let Some(msg) = message.downcast_ref::<TurretControllerFiredMsg>() {
-            let origin = &msg.origin;
-            let direction = &msg.direction;
-            let _ = (origin, direction);
-                    ctx.scene.graph[self.heat_bar].set_value(self.visible_heat);
-        }
-
-        if let Some(msg) = message.downcast_ref::<TurretControllerHeatChangedMsg>() {
-            let value = &msg.value;
-            self.visible_heat = *value;
-                    ctx.scene.graph[self.heat_bar].set_value(*value);
-        }
+    #[allow(unused_variables)]
+    fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) -> GameResult {
+        {
+            let _ = (&mut *message, ctx.dt);
+            
+            if let Some(msg) = message.downcast_ref::<TurretControllerFiredMsg>() {
+                let origin = &msg.origin;
+                let direction = &msg.direction;
+                let _ = (origin, direction);
+                        ctx.scene.graph[self.heat_bar].set_value(self.visible_heat);
+            }
+            
+            if let Some(msg) = message.downcast_ref::<TurretControllerHeatChangedMsg>() {
+                let value = &msg.value;
+                self.visible_heat = *value;
+                        ctx.scene.graph[self.heat_bar].set_value(*value);
+            }
+        };
+        Ok(())
     }
 
-    fn on_update(&mut self, ctx: &mut ScriptContext) {
-        self.overheated = self.visible_heat >= 1.0;
-
-        if self.overheated != self._overheated_prev {
-            if self.overheated {
-                        ctx.scene.graph[self.status_label].set_text("OVERHEATED");
-                        ctx.scene.graph[self.status_label].set_color(Color::RED);
-                    } else {
-                        ctx.scene.graph[self.status_label].set_text("READY");
-                    }
-            self._overheated_prev = self.overheated.clone();
-        }
-
-        self._visible_heat_prev = self.visible_heat.clone();
+    #[allow(unused_variables)]
+    fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {
+        {
+            self.overheated = self.visible_heat >= 1.0;
+            
+            if self.overheated != self._overheated_prev {
+                if self.overheated {
+                            ctx.scene.graph[self.status_label].set_text("OVERHEATED");
+                            ctx.scene.graph[self.status_label].set_color(Color::RED);
+                        } else {
+                            ctx.scene.graph[self.status_label].set_text("READY");
+                        }
+                self._overheated_prev = self.overheated.clone();
+            }
+            
+            self._visible_heat_prev = self.visible_heat.clone();
+        };
+        Ok(())
     }
 
-    fn on_start(&mut self, ctx: &mut ScriptContext) {
+    #[allow(unused_variables)]
+    fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {
         self.heat_bar = ctx.scene.graph.find_by_name_from_root("UI/HeatBar")
             .map(|(h, _)| h)
             .unwrap_or_default();
         self.status_label = ctx.scene.graph.find_by_name_from_root("UI/Status")
             .map(|(h, _)| h)
             .unwrap_or_default();
-        ctx.message_dispatcher.subscribe_to::<TurretControllerFiredMsg>(ctx.handle);
-        ctx.message_dispatcher.subscribe_to::<TurretControllerHeatChangedMsg>(ctx.handle);
+        {
+            ctx.message_dispatcher.subscribe_to::<TurretControllerFiredMsg>(ctx.handle);
+            ctx.message_dispatcher.subscribe_to::<TurretControllerHeatChangedMsg>(ctx.handle);
+        };
+        Ok(())
     }
 }
 

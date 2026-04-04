@@ -59,7 +59,7 @@ script TurretController {
     }
 
     on deinit(ctx) {
-        let _ = ctx.dt;
+        let _ = ctx.elapsed_time;
         self.cooldown = 0.0;
     }
 }

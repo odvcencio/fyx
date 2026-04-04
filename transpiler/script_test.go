@@ -28,7 +28,7 @@ func TestTranspileMinimalScript(t *testing.T) {
 	if !strings.Contains(out, "impl ScriptTrait for Player") {
 		t.Errorf("missing ScriptTrait impl: %s", out)
 	}
-	if !strings.Contains(out, "fn on_update") {
+	if !strings.Contains(out, "fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult") {
 		t.Errorf("missing on_update: %s", out)
 	}
 	if !strings.Contains(out, "#[reflect(hidden)]") {
@@ -119,9 +119,6 @@ func TestTranspileScriptInspectField(t *testing.T) {
 		},
 	}
 	out := TranspileScript(s)
-	if !strings.Contains(out, "#[reflect(expand)]") {
-		t.Errorf("missing reflect expand: %s", out)
-	}
 	if !strings.Contains(out, "pub visible: f64") {
 		t.Errorf("inspect field should be pub: %s", out)
 	}
@@ -135,9 +132,6 @@ func TestTranspileScriptReactiveField(t *testing.T) {
 		},
 	}
 	out := TranspileScript(s)
-	if !strings.Contains(out, "#[reflect(expand)]") {
-		t.Errorf("reactive field should have reflect expand: %s", out)
-	}
 	if !strings.Contains(out, "pub score: i32") {
 		t.Errorf("reactive field should be pub: %s", out)
 	}
@@ -189,11 +183,14 @@ func TestTranspileScriptInitHandler(t *testing.T) {
 		},
 	}
 	out := TranspileScript(s)
-	if !strings.Contains(out, "fn on_init(&mut self, ctx: &mut ScriptContext)") {
+	if !strings.Contains(out, "fn on_init(&mut self, ctx: &mut ScriptContext) -> GameResult") {
 		t.Errorf("missing on_init: %s", out)
 	}
 	if !strings.Contains(out, `log::info!("init");`) {
 		t.Errorf("missing body: %s", out)
+	}
+	if !strings.Contains(out, "Ok(())") {
+		t.Errorf("missing GameResult return: %s", out)
 	}
 }
 
@@ -205,7 +202,7 @@ func TestTranspileScriptDeinitHandler(t *testing.T) {
 		},
 	}
 	out := TranspileScript(s)
-	if !strings.Contains(out, "fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext)") {
+	if !strings.Contains(out, "fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) -> GameResult") {
 		t.Errorf("missing on_deinit: %s", out)
 	}
 }
@@ -225,7 +222,7 @@ func TestTranspileScriptEventHandler(t *testing.T) {
 		},
 	}
 	out := TranspileScript(s)
-	if !strings.Contains(out, "fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext)") {
+	if !strings.Contains(out, "fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult") {
 		t.Errorf("missing on_os_event: %s", out)
 	}
 	if !strings.Contains(out, "WindowEvent::KeyboardInput(ev)") {

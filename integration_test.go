@@ -148,9 +148,10 @@ func TestEndToEndDepthExample(t *testing.T) {
 		"TurretControllerHeatChangedMsg",
 		"ctx.message_dispatcher.subscribe_to::<TurretControllerFiredMsg>(ctx.handle);",
 		"ctx.ecs.spawn((HeatTrail { heat: self.heat, ttl: 0.5 }, ShotOwner { node: self.muzzle }))",
-		"fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) {",
+		"fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {",
 		"if let Event::WindowEvent { event: WindowEvent::MouseButton(button), .. } = event {",
-		"fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) {",
+		"ctx.scene.graph[self.pivot].set_rotation_y(self.turn_rate * 0.25);",
+		"fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) -> GameResult {",
 		"pub fn system_decay_heat_trails(world: &mut EcsWorld, ctx: &PluginContext) {",
 		"pub fn system_inspect_heat_trails(world: &mut EcsWorld, ctx: &PluginContext) {",
 	}

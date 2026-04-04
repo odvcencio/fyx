@@ -1,3 +1,27 @@
+#[allow(unused_imports)]
+use fyrox::asset::Resource;
+#[allow(unused_imports)]
+use fyrox::core::pool::Handle;
+#[allow(unused_imports)]
+use fyrox::core::reflect::prelude::*;
+#[allow(unused_imports)]
+use fyrox::core::type_traits::prelude::*;
+#[allow(unused_imports)]
+use fyrox::core::visitor::prelude::*;
+#[allow(unused_imports)]
+use fyrox::event::{Event, WindowEvent};
+#[allow(unused_imports)]
+use fyrox::plugin::error::GameResult;
+#[allow(unused_imports)]
+use fyrox::plugin::{PluginContext, PluginRegistrationContext};
+#[allow(unused_imports)]
+use fyrox::resource::model::Model;
+#[allow(unused_imports)]
+use fyrox::scene::node::Node;
+#[allow(unused_imports)]
+use fyrox::script::{ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload, ScriptTrait};
+
+
 #[derive(Debug, Clone)]
 pub struct EnemyDiedMsg {
     pub position: Vector3,
@@ -13,7 +37,6 @@ pub struct EnemyDamagedMsg {
 #[type_uuid(id = "0021d5fe-20a0-8754-dd96-5d947e483074")]
 #[visit(optional)]
 pub struct Enemy {
-    #[reflect(expand)]
     pub health: f32,
 }
 
@@ -27,10 +50,14 @@ impl Default for Enemy {
 }
 
 impl ScriptTrait for Enemy {
-    fn on_update(&mut self, ctx: &mut ScriptContext) {
-        if self.health <= 0.0 {
-                    ctx.message_sender.send_global(EnemyDiedMsg { position: ctx.scene.graph[ctx.handle].global_position() });
-                }
+    #[allow(unused_variables)]
+    fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {
+        {
+            if self.health <= 0.0 {
+                        ctx.message_sender.send_global(EnemyDiedMsg { position: ctx.scene.graph[ctx.handle].global_position() });
+                    }
+        };
+        Ok(())
     }
 }
 
@@ -39,7 +66,6 @@ impl ScriptTrait for Enemy {
 #[type_uuid(id = "794caf2c-d47b-3003-b20f-28cb864812fb")]
 #[visit(optional)]
 pub struct ScoreTracker {
-    #[reflect(expand)]
     pub score: i32,
 }
 
@@ -53,15 +79,23 @@ impl Default for ScoreTracker {
 }
 
 impl ScriptTrait for ScoreTracker {
-    fn on_start(&mut self, ctx: &mut ScriptContext) {
-        ctx.message_dispatcher.subscribe_to::<EnemyDiedMsg>(ctx.handle);
+    #[allow(unused_variables)]
+    fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {
+        {
+            ctx.message_dispatcher.subscribe_to::<EnemyDiedMsg>(ctx.handle);
+        };
+        Ok(())
     }
 
-    fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) {
-        if let Some(msg) = message.downcast_ref::<EnemyDiedMsg>() {
-            let pos = &msg.position;
-            self.score += 100;
-        }
+    #[allow(unused_variables)]
+    fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) -> GameResult {
+        {
+            if let Some(msg) = message.downcast_ref::<EnemyDiedMsg>() {
+                let pos = &msg.position;
+                self.score += 100;
+            }
+        };
+        Ok(())
     }
 }
 

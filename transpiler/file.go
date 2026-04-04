@@ -45,6 +45,13 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 		hasSection = true
 	}
 
+	if needsGeneratedPrelude(file) {
+		emitSectionBreak()
+		for _, line := range generatedPreludeLines() {
+			e.LineWithSource(line, generatedPreludeLine(file))
+		}
+	}
+
 	if len(file.Imports) > 0 {
 		emitSectionBreak()
 		for _, imp := range file.Imports {
@@ -261,4 +268,71 @@ func EmitRegisterScripts(e *RustEmitter, scripts []ast.Script) {
 // register_scripts function, useful when building output incrementally.
 func TranspileRegisterScripts(scripts []ast.Script) string {
 	return fmt.Sprintf("%s", generateRegisterScripts(scripts))
+}
+
+func needsGeneratedPrelude(file ast.File) bool {
+	return len(file.Scripts) > 0 || len(file.Systems) > 0
+}
+
+func generatedPreludeLine(file ast.File) int {
+	for _, line := range []int{
+		firstImportLine(file),
+		firstRustItemLine(file),
+		firstScriptLine(file),
+		firstSystemLine(file),
+	} {
+		if line != 0 {
+			return line
+		}
+	}
+	return 1
+}
+
+func firstImportLine(file ast.File) int {
+	if len(file.Imports) == 0 {
+		return 0
+	}
+	return file.Imports[0].Line
+}
+
+func firstRustItemLine(file ast.File) int {
+	if len(file.RustItems) == 0 {
+		return 0
+	}
+	return file.RustItems[0].Line
+}
+
+func firstScriptLine(file ast.File) int {
+	if len(file.Scripts) == 0 {
+		return 0
+	}
+	return file.Scripts[0].Line
+}
+
+func firstSystemLine(file ast.File) int {
+	if len(file.Systems) == 0 {
+		return 0
+	}
+	return file.Systems[0].Line
+}
+
+func generatedPreludeLines() []string {
+	var lines []string
+	for _, useLine := range []string{
+		"use fyrox::asset::Resource;",
+		"use fyrox::core::pool::Handle;",
+		"use fyrox::core::reflect::prelude::*;",
+		"use fyrox::core::type_traits::prelude::*;",
+		"use fyrox::core::visitor::prelude::*;",
+		"use fyrox::event::{Event, WindowEvent};",
+		"use fyrox::plugin::error::GameResult;",
+		"use fyrox::plugin::{PluginContext, PluginRegistrationContext};",
+		"use fyrox::resource::model::Model;",
+		"use fyrox::scene::node::Node;",
+		"use fyrox::script::{ScriptContext, ScriptDeinitContext, ScriptMessageContext, ScriptMessagePayload, ScriptTrait};",
+	} {
+		lines = append(lines, "#[allow(unused_imports)]")
+		lines = append(lines, useLine)
+	}
+	return lines
 }

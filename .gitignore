@@ -1,6 +1,9 @@
 /generated/
 /fyxc
 /runtime/target/
+/proofs/*/target/
+/data/resources.registry
+/*.log
 
 *.fyxmap.json
 *.rs.bk
