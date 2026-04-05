@@ -25,6 +25,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cmd == "lsp" {
+		if err := runLSP(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	checkOnly := fs.Bool("check", cmd == "check", "Parse/transpile validation only")
 	outDir := fs.String("out", "generated", "Output directory")
@@ -120,7 +128,7 @@ func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) 
 	}
 
 	cmd = args[0]
-	if cmd != "build" && cmd != "check" {
+	if cmd != "build" && cmd != "check" && cmd != "lsp" {
 		return "", nil, nil
 	}
 
@@ -146,6 +154,7 @@ func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) 
 func usage() {
 	fmt.Fprintln(os.Stderr, "Usage: fyxc build [dir] [--check] [--cargo-check] [--watch] [--verbose] [--out <dir>]")
 	fmt.Fprintln(os.Stderr, "       fyxc check [dir] [--cargo-check] [--watch] [--verbose] [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "       fyxc lsp")
 }
 
 func countErrors(diags []diag.Diagnostic) int {
