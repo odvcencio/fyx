@@ -1,0 +1,7 @@
+script HealthBar {
+    node bar: ProgressBar = "UI/HealthBar"
+
+    connect Player::took_damage(amount) {
+        let _ = amount;
+    }
+}

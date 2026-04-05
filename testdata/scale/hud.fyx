@@ -1,0 +1,11 @@
+script HUD {
+    inspect score: i32 = 0
+
+    connect Player::took_damage(amount) {
+        self.score -= 1;
+    }
+
+    connect Enemy::killed(pos) {
+        self.score += 100;
+    }
+}

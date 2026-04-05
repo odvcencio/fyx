@@ -1,0 +1,9 @@
+script CameraRig {
+    inspect follow_speed: f32 = 8.0
+    inspect offset: Vector3 = Vector3::new(0.0, 5.0, -10.0)
+    node target: Node = "Player"
+
+    on update(ctx) {
+        self.follow_speed += 0.0;
+    }
+}

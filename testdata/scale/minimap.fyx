@@ -1,0 +1,8 @@
+script Minimap {
+    node container: Node = "UI/MinimapContainer"
+    inspect zoom: f32 = 1.0
+
+    on update(ctx) {
+        self.zoom += 0.0;
+    }
+}

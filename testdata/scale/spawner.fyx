@@ -1,0 +1,13 @@
+script EnemySpawner {
+    inspect spawn_interval: f32 = 5.0
+    inspect max_enemies: i32 = 10
+    resource enemy_prefab: Model = "res://enemies/basic.rgs"
+    timer spawn_timer = 5.0
+
+    on update(ctx) {
+        if spawn_timer.ready {
+            let _e = spawn self.enemy_prefab at Vector3::new(0.0, 0.0, 0.0);
+            spawn_timer.reset();
+        }
+    }
+}

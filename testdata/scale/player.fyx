@@ -1,0 +1,17 @@
+script Player {
+    inspect speed: f32 = 5.0
+    inspect health: f32 = 100.0
+    reactive ammo: i32 = 30
+    derived is_alive: bool = self.health > 0.0
+
+    signal took_damage(amount: f32)
+    signal died(position: Vector3)
+
+    timer invuln_timer = 2.0
+
+    on update(ctx) {
+        if self.health <= 0.0 {
+            emit died(self.position());
+        }
+    }
+}

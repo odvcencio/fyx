@@ -1,0 +1,15 @@
+script Weapon {
+    inspect fire_rate: f32 = 0.1
+    node muzzle: Node = "MuzzlePoint"
+
+    signal fired(origin: Vector3, direction: Vector3)
+
+    timer cooldown = 0.1
+
+    on update(ctx) {
+        if cooldown.ready {
+            emit fired(self.muzzle.position(), self.forward());
+            cooldown.reset();
+        }
+    }
+}

@@ -1,0 +1,11 @@
+script InputHandler {
+    inspect sensitivity: f32 = 1.0
+
+    state normal {
+        on update { }
+    }
+    state paused {
+        on enter { }
+        on update { }
+    }
+}

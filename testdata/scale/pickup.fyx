@@ -1,0 +1,9 @@
+script HealthPickup {
+    inspect heal_amount: f32 = 25.0
+
+    signal collected(amount: f32)
+
+    on update(ctx) {
+        self.heal_amount += 0.0;
+    }
+}

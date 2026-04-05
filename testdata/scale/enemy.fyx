@@ -1,0 +1,19 @@
+script Enemy {
+    inspect damage: f32 = 10.0
+    inspect chase_range: f32 = 15.0
+
+    signal attacked(target: Handle<Node>, damage: f32)
+    signal killed(position: Vector3)
+
+    state idle {
+        on update {
+            go patrol;
+        }
+    }
+    state patrol {
+        on update { }
+    }
+    state chase {
+        on update { }
+    }
+}

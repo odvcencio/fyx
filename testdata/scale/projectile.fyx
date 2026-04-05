@@ -1,0 +1,14 @@
+component Projectile {
+    damage: f32
+    lifetime: f32
+}
+
+component ShotOwner {
+    shooter: Handle<Node>
+}
+
+system expire_projectiles(dt: f32) {
+    query(entity: Entity, proj: &mut Projectile) {
+        proj.lifetime -= dt;
+    }
+}

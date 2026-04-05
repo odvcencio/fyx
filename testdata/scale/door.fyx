@@ -1,0 +1,13 @@
+script Door {
+    inspect locked: bool = true
+
+    signal opened()
+    signal closed()
+
+    state closed_state {
+        on update { }
+    }
+    state open_state {
+        on enter { }
+    }
+}

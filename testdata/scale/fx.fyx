@@ -1,0 +1,7 @@
+script FXSpawner {
+    resource explosion: Model = "res://effects/explosion.rgs"
+
+    connect Enemy::killed(pos) {
+        let _fx = spawn self.explosion at pos lifetime 2.0;
+    }
+}

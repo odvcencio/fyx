@@ -1,0 +1,10 @@
+script AttackAI {
+    inspect attack_range: f32 = 2.0
+
+    signal attack_started()
+    signal attack_finished()
+
+    connect Enemy::attacked(target, damage) {
+        let _ = (target, damage);
+    }
+}

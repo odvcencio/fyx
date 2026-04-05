@@ -1,0 +1,10 @@
+component DamageZone {
+    radius: f32
+    amount: f32
+}
+
+system check_damage {
+    query(entity: Entity, zone: &DamageZone) {
+        let _ = (entity, zone.radius);
+    }
+}

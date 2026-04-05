@@ -1,0 +1,9 @@
+script TriggerZone {
+    inspect radius: f32 = 3.0
+
+    signal triggered(who: Handle<Node>)
+
+    on update(ctx) {
+        self.radius += 0.0;
+    }
+}

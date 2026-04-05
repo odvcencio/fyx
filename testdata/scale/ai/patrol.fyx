@@ -1,0 +1,13 @@
+script PatrolAI {
+    inspect waypoint_count: i32 = 4
+
+    state walking {
+        on update { }
+    }
+    state waiting {
+        on enter { }
+        on update {
+            go walking;
+        }
+    }
+}

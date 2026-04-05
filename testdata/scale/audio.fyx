@@ -1,0 +1,13 @@
+script AudioManager {
+    connect Weapon::fired(origin, dir) {
+        let _ = (origin, dir);
+    }
+
+    connect Player::died(pos) {
+        let _ = pos;
+    }
+
+    connect Enemy::killed(pos) {
+        let _ = pos;
+    }
+}

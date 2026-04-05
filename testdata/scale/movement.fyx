@@ -1,0 +1,10 @@
+component Velocity {
+    linear: Vector3
+    angular: f32
+}
+
+system apply_velocity(dt: f32) {
+    query(pos: &mut Transform, vel: &Velocity) {
+        pos.translate(vel.linear * dt);
+    }
+}

@@ -1,0 +1,7 @@
+script ScoreDisplay {
+    nodes digits: Text = "UI/ScoreDigits/*"
+
+    connect Enemy::killed(pos) {
+        let _ = pos;
+    }
+}
