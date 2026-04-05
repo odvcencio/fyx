@@ -68,12 +68,6 @@ func (c *checkCtx) checkScript(script ast.Script) {
 	c.checkEmpty(script)
 }
 
-// Stubs — replaced by real implementations in rules.go (Tasks 3-6).
-func (c *checkCtx) checkHandlers(_ ast.Script)        {}
-func (c *checkCtx) checkStates(_ ast.Script)           {}
-func (c *checkCtx) checkConnects(_ ast.Script)         {}
-func (c *checkCtx) checkWatches(_ ast.Script)          {}
-func (c *checkCtx) checkEmitArgCounts(_ ast.Script)    {}
-func (c *checkCtx) checkEmpty(_ ast.Script)            {}
-func (c *checkCtx) checkComponents()                   {}
-func (c *checkCtx) checkSystems()                      {}
+// Stubs — replaced by real implementations as rules are added.
+func (c *checkCtx) checkComponents() {}
+func (c *checkCtx) checkSystems()    {}
