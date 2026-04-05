@@ -69,7 +69,6 @@ func (c *checkCtx) checkScript(script ast.Script) {
 }
 
 // Stubs — replaced by real implementations in rules.go (Tasks 3-6).
-func (c *checkCtx) checkDuplicateFields(_ ast.Script) {}
 func (c *checkCtx) checkHandlers(_ ast.Script)        {}
 func (c *checkCtx) checkStates(_ ast.Script)           {}
 func (c *checkCtx) checkConnects(_ ast.Script)         {}
