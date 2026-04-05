@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -138,5 +139,113 @@ func TestWordAtPosition(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("wordAtPosition(line=%d, char=%d) = %q, want %q", tt.line, tt.char, got, tt.want)
 		}
+	}
+}
+
+func TestLSP_DidOpen_ProducesDiagnostics(t *testing.T) {
+	s := NewServer()
+	params, _ := json.Marshal(map[string]any{
+		"textDocument": map[string]any{
+			"uri": "file:///test/player.fyx", "languageId": "fyx", "version": 1,
+			"text": "script Player {\n    inspect speed: f32 = 5.0\n    inspect speed: f32 = 10.0\n}",
+		},
+	})
+	responses := s.HandleMessage(mustJSON(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": json.RawMessage(params),
+	}))
+	if len(responses) == 0 {
+		t.Fatal("expected diagnostic notification, got none")
+	}
+	var notif struct {
+		Method string `json:"method"`
+		Params struct {
+			Diagnostics []struct {
+				Message string `json:"message"`
+			} `json:"diagnostics"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(responses[0], &notif); err != nil {
+		t.Fatalf("failed to parse notification: %v", err)
+	}
+	if notif.Method != "textDocument/publishDiagnostics" {
+		t.Errorf("expected publishDiagnostics, got %s", notif.Method)
+	}
+	if len(notif.Params.Diagnostics) == 0 {
+		t.Error("expected at least one diagnostic")
+	}
+}
+
+func TestLSP_DidOpen_ValidFile_NoDiagnostics(t *testing.T) {
+	s := NewServer()
+	params, _ := json.Marshal(map[string]any{
+		"textDocument": map[string]any{
+			"uri": "file:///test/player.fyx", "languageId": "fyx", "version": 1,
+			"text": "script Player {\n    inspect speed: f32 = 5.0\n    on update(ctx) {\n        self.speed += 1.0;\n    }\n}",
+		},
+	})
+	responses := s.HandleMessage(mustJSON(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": json.RawMessage(params),
+	}))
+	if len(responses) == 0 {
+		t.Fatal("expected diagnostic notification")
+	}
+	var notif struct {
+		Params struct {
+			Diagnostics []json.RawMessage `json:"diagnostics"`
+		} `json:"params"`
+	}
+	json.Unmarshal(responses[0], &notif)
+	if len(notif.Params.Diagnostics) != 0 {
+		t.Errorf("expected zero diagnostics for valid file, got %d", len(notif.Params.Diagnostics))
+	}
+}
+
+func TestLSP_Completion_ReturnsKeywords(t *testing.T) {
+	s := NewServer()
+	params, _ := json.Marshal(map[string]any{
+		"textDocument": map[string]any{"uri": "file:///test/player.fyx"},
+		"position":     map[string]any{"line": 0, "character": 0},
+	})
+	responses := s.HandleMessage(mustJSON(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "textDocument/completion",
+		"params": json.RawMessage(params),
+	}))
+	if len(responses) == 0 {
+		t.Fatal("expected completion response")
+	}
+	resp := string(responses[0])
+	if !strings.Contains(resp, "script") {
+		t.Error("completion response should include 'script' keyword")
+	}
+}
+
+func TestLSP_Hover_ReturnsInfo(t *testing.T) {
+	s := NewServer()
+	// First open a document so the server has content
+	openParams, _ := json.Marshal(map[string]any{
+		"textDocument": map[string]any{
+			"uri": "file:///test/player.fyx", "languageId": "fyx", "version": 1,
+			"text": "script Player {\n    inspect speed: f32 = 5.0\n}",
+		},
+	})
+	s.HandleMessage(mustJSON(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": json.RawMessage(openParams),
+	}))
+
+	// Now hover over "inspect" (line 1, character 8)
+	hoverParams, _ := json.Marshal(map[string]any{
+		"textDocument": map[string]any{"uri": "file:///test/player.fyx"},
+		"position":     map[string]any{"line": 1, "character": 8},
+	})
+	responses := s.HandleMessage(mustJSON(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
+		"params": json.RawMessage(hoverParams),
+	}))
+	if len(responses) == 0 {
+		t.Fatal("expected hover response")
+	}
+	resp := string(responses[0])
+	if !strings.Contains(resp, "inspect") || !strings.Contains(resp, "editor") {
+		t.Errorf("hover response should contain inspect documentation, got: %s", resp[:min(200, len(resp))])
 	}
 }
