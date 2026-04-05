@@ -1,7 +1,8 @@
 {
   "name": "fyx-language",
   "displayName": "Fyx Language Support",
-  "version": "0.1.0",
+  "description": "Language support for Fyx — a cargo-native scripting language for Fyrox",
+  "version": "0.2.0",
   "publisher": "odvcencio",
   "engines": {
     "vscode": "^1.90.0"
@@ -9,6 +10,10 @@
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [
+    "onLanguage:fyx"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
@@ -29,6 +34,34 @@
         "scopeName": "source.fyx",
         "path": "./syntaxes/fyx.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Fyx",
+      "properties": {
+        "fyx.serverPath": {
+          "type": "string",
+          "default": "fyxc",
+          "description": "Path to the fyxc binary"
+        },
+        "fyx.verboseErrors": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show guide-voice (beginner-friendly) error messages"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver-protocol": "^3.17.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
   }
 }
