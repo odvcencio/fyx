@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/odvcencio/fyx/ast"
+	"github.com/odvcencio/fyx/compiler/check"
+	"github.com/odvcencio/fyx/compiler/diag"
 	"github.com/odvcencio/fyx/grammar"
 	"github.com/odvcencio/fyx/transpiler"
 	gotreesitter "github.com/odvcencio/gotreesitter"
@@ -28,6 +30,7 @@ type compileResult struct {
 	TotalComponents int
 	TotalSystems    int
 	TotalArbiter    int
+	Diagnostics     []diag.Diagnostic
 }
 
 func compileProject(inputDir string) (*compileResult, error) {
@@ -70,7 +73,17 @@ func compileProject(inputDir string) (*compileResult, error) {
 
 	signalIndex := transpiler.BuildSignalIndex(astFiles)
 	componentHandleIndex := transpiler.BuildComponentHandleIndex(astFiles)
-	result := &compileResult{Files: files}
+
+	var checkDiags []diag.Diagnostic
+	for _, file := range files {
+		diags := check.CheckFile(file.File, check.CheckOptions{
+			FilePath:    file.SourcePath,
+			SignalIndex: check.SignalIndex(signalIndex),
+		})
+		checkDiags = append(checkDiags, diags...)
+	}
+
+	result := &compileResult{Files: files, Diagnostics: checkDiags}
 	for i := range result.Files {
 		file := &result.Files[i]
 		file.Output = transpiler.TranspileFileResult(file.File, transpiler.Options{

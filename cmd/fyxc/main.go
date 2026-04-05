@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/odvcencio/fyx/compiler/diag"
 )
 
 type runOptions struct {
@@ -13,6 +15,7 @@ type runOptions struct {
 	OutDir         string
 	CargoCheck     bool
 	WriteSourceMap bool
+	Verbose        bool
 }
 
 func main() {
@@ -27,6 +30,7 @@ func main() {
 	outDir := fs.String("out", "generated", "Output directory")
 	cargoCheck := fs.Bool("cargo-check", false, "Validate generated Rust with cargo check")
 	writeSourceMap := fs.Bool("emit-source-map", true, "Write .fyxmap.json sidecars when output files are written")
+	verbose := fs.Bool("verbose", true, "Use guide-voice error messages (default: true)")
 	watch := fs.Bool("watch", false, "Re-run build/check when .fyx files change")
 	fs.Parse(flagArgs)
 
@@ -40,6 +44,7 @@ func main() {
 		OutDir:         *outDir,
 		CargoCheck:     *cargoCheck,
 		WriteSourceMap: *writeSourceMap,
+		Verbose:        *verbose,
 	}
 
 	if *watch {
@@ -60,6 +65,19 @@ func runOnce(inputDir string, opts runOptions) error {
 	result, err := compileProject(inputDir)
 	if err != nil {
 		return err
+	}
+
+	if len(result.Diagnostics) > 0 {
+		hasErrors := false
+		for _, d := range result.Diagnostics {
+			fmt.Fprintln(os.Stderr, d.Format(opts.Verbose))
+			if d.Severity == diag.SeverityError {
+				hasErrors = true
+			}
+		}
+		if hasErrors {
+			return fmt.Errorf("%d diagnostic error(s)", countErrors(result.Diagnostics))
+		}
 	}
 
 	printSummary(result, opts.OutDir)
@@ -110,7 +128,7 @@ func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) 
 	for i := 0; i < len(raw); i++ {
 		arg := raw[i]
 		switch {
-		case arg == "--check" || arg == "--cargo-check" || arg == "--emit-source-map" || arg == "--watch":
+		case arg == "--check" || arg == "--cargo-check" || arg == "--emit-source-map" || arg == "--watch" || arg == "--verbose":
 			flagArgs = append(flagArgs, arg)
 		case arg == "--out" && i+1 < len(raw):
 			flagArgs = append(flagArgs, arg, raw[i+1])
@@ -126,6 +144,16 @@ func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) 
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: fyxc build [dir] [--check] [--cargo-check] [--watch] [--out <dir>]")
-	fmt.Fprintln(os.Stderr, "       fyxc check [dir] [--cargo-check] [--watch] [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "Usage: fyxc build [dir] [--check] [--cargo-check] [--watch] [--verbose] [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "       fyxc check [dir] [--cargo-check] [--watch] [--verbose] [--out <dir>]")
+}
+
+func countErrors(diags []diag.Diagnostic) int {
+	n := 0
+	for _, d := range diags {
+		if d.Severity == diag.SeverityError {
+			n++
+		}
+	}
+	return n
 }
