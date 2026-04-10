@@ -16,7 +16,14 @@ type runOptions struct {
 	CargoCheck     bool
 	WriteSourceMap bool
 	Verbose        bool
+	ExcludeDirs    []string
 }
+
+// stringSliceFlag implements flag.Value for repeated --exclude flags.
+type stringSliceFlag []string
+
+func (s *stringSliceFlag) String() string     { return strings.Join(*s, ",") }
+func (s *stringSliceFlag) Set(v string) error { *s = append(*s, v); return nil }
 
 func main() {
 	cmd, flagArgs, posArgs := parseArgs(os.Args[1:])
@@ -40,6 +47,8 @@ func main() {
 	writeSourceMap := fs.Bool("emit-source-map", true, "Write .fyxmap.json sidecars when output files are written")
 	verbose := fs.Bool("verbose", true, "Use guide-voice error messages (default: true)")
 	watch := fs.Bool("watch", false, "Re-run build/check when .fyx files change")
+	var exclude stringSliceFlag
+	fs.Var(&exclude, "exclude", "Exclude subdirectory from compilation (may be repeated)")
 	fs.Parse(flagArgs)
 
 	inputDir := "."
@@ -53,6 +62,7 @@ func main() {
 		CargoCheck:     *cargoCheck,
 		WriteSourceMap: *writeSourceMap,
 		Verbose:        *verbose,
+		ExcludeDirs:    []string(exclude),
 	}
 
 	if *watch {
@@ -70,7 +80,9 @@ func main() {
 }
 
 func runOnce(inputDir string, opts runOptions) error {
-	result, err := compileProject(inputDir)
+	result, err := compileProjectWithOptions(inputDir, compileProjectOptions{
+		ExcludeDirs: opts.ExcludeDirs,
+	})
 	if err != nil {
 		return err
 	}
@@ -142,6 +154,11 @@ func parseArgs(args []string) (cmd string, flagArgs []string, posArgs []string) 
 			flagArgs = append(flagArgs, arg, raw[i+1])
 			i++
 		case strings.HasPrefix(arg, "--out="):
+			flagArgs = append(flagArgs, arg)
+		case arg == "--exclude" && i+1 < len(raw):
+			flagArgs = append(flagArgs, arg, raw[i+1])
+			i++
+		case strings.HasPrefix(arg, "--exclude="):
 			flagArgs = append(flagArgs, arg)
 		default:
 			posArgs = append(posArgs, arg)

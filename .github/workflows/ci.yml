@@ -52,7 +52,11 @@ jobs:
         run: cargo test
 
       - name: Validate generated Rust
-        run: go run ./cmd/fyxc check testdata --cargo-check
+        run: |
+          # Scale fixtures share script names (Weapon/Player/Enemy/HUD) with
+          # canonical testdata but declare conflicting signal signatures. They
+          # are validated separately as their own project by scale_test.go.
+          go run ./cmd/fyxc check testdata --cargo-check --exclude scale
 
       - name: Compile Fyrox 2D proof crate
         run: cargo check --manifest-path proofs/fyrox_2d/Cargo.toml
