@@ -1,9 +1,7 @@
 use fyrox::asset::manager::ResourceManager;
 use fyrox::core::algebra::UnitQuaternion;
 use fyrox::core::algebra::Vector3;
-use fyrox::event::ElementState;
 use fyrox::keyboard::KeyCode;
-use fyrox::keyboard::PhysicalKey;
 use fyrox::material::Material;
 use fyrox::material::MaterialResource;
 use fyrox::plugin::Plugin;
@@ -127,21 +125,13 @@ script CameraRig {
     move_left: bool
     move_right: bool
 
-    on event(ctx) {
-        if let Event::WindowEvent {
-            event: WindowEvent::KeyboardInput { event: input, .. },
-            ..
-        } = event
-        {
-            if let PhysicalKey::Code(code) = input.physical_key {
-                match code {
-                    KeyCode::KeyW => self.move_forward = input.state == ElementState::Pressed,
-                    KeyCode::KeyS => self.move_backward = input.state == ElementState::Pressed,
-                    KeyCode::KeyA => self.move_left = input.state == ElementState::Pressed,
-                    KeyCode::KeyD => self.move_right = input.state == ElementState::Pressed,
-                    _ => (),
-                }
-            }
+    on key(code, pressed) {
+        match code {
+            KeyCode::KeyW => self.move_forward = pressed,
+            KeyCode::KeyS => self.move_backward = pressed,
+            KeyCode::KeyA => self.move_left = pressed,
+            KeyCode::KeyD => self.move_right = pressed,
+            _ => (),
         }
     }
 

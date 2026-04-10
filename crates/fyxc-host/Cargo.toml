@@ -1,0 +1,10 @@
+[package]
+name = "fyxc-host"
+version = "0.1.0"
+edition = "2021"
+description = "Embedded host wrapper for the fyxc Go compiler"
+license = "MIT"
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"

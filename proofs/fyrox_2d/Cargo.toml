@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 fyrox = "=1.0.1"
 
+[build-dependencies]
+fyxc-host = { path = "../../crates/fyxc-host" }

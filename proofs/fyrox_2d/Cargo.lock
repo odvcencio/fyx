@@ -1751,7 +1751,12 @@ name = "fyx-fyrox-2d"
 version = "0.1.0"
 dependencies = [
  "fyrox",
+ "fyxc-host",
 ]
+
+[[package]]
+name = "fyxc-host"
+version = "0.1.0"
 
 [[package]]
 name = "gethostname"
