@@ -166,6 +166,7 @@ func FyxGrammar() *grammargen.Grammar {
 	// A script member is a field declaration, lifecycle handler, signal, connect block, or watch block
 	g.Define("_script_member", grammargen.Choice(
 		grammargen.Sym("_field_declaration"),
+		grammargen.Sym("state_declaration"),
 		grammargen.Sym("lifecycle_handler"),
 		grammargen.Sym("signal_declaration"),
 		grammargen.Sym("connect_block"),
@@ -178,6 +179,7 @@ func FyxGrammar() *grammargen.Grammar {
 		grammargen.Sym("node_field"),
 		grammargen.Sym("nodes_field"),
 		grammargen.Sym("resource_field"),
+		grammargen.Sym("timer_field"),
 		grammargen.Sym("reactive_field"),
 		grammargen.Sym("derived_field"),
 		grammargen.Sym("bare_field"),
@@ -231,6 +233,16 @@ func FyxGrammar() *grammargen.Grammar {
 		)),
 	))
 
+	// timer fire_cooldown = 0.1
+	g.Define("timer_field", grammargen.Seq(
+		grammargen.Str("timer"),
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Optional(grammargen.Seq(
+			grammargen.Str("="),
+			grammargen.Field("default", grammargen.Sym("default_value")),
+		)),
+	))
+
 	// move_dir: Vector3  (bare field — no modifier keyword)
 	g.Define("bare_field", grammargen.Seq(
 		grammargen.Field("name", grammargen.Sym("identifier")),
@@ -278,6 +290,27 @@ func FyxGrammar() *grammargen.Grammar {
 		grammargen.Field("field", grammargen.Sym("identifier")),
 	))
 
+	// state alert { on enter { ... } on update { ... } on exit { ... } }
+	g.Define("state_declaration", grammargen.Seq(
+		grammargen.Str("state"),
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Str("{"),
+		grammargen.Repeat(grammargen.Sym("state_handler")),
+		grammargen.Str("}"),
+	))
+
+	g.Define("state_handler", grammargen.Seq(
+		grammargen.Str("on"),
+		grammargen.Field("kind", grammargen.Sym("state_handler_kind")),
+		grammargen.Field("body", grammargen.Sym("handler_body")),
+	))
+
+	g.Define("state_handler_kind", grammargen.Choice(
+		grammargen.Str("enter"),
+		grammargen.Str("update"),
+		grammargen.Str("exit"),
+	))
+
 	// Lifecycle handler: on init(ctx) { ... }
 	g.Define("lifecycle_handler", grammargen.Seq(
 		grammargen.Str("on"),
@@ -288,13 +321,15 @@ func FyxGrammar() *grammargen.Grammar {
 		grammargen.Field("body", grammargen.Sym("handler_body")),
 	))
 
-	// Handler kinds: init, start, update, deinit, event, message
+	// Handler kinds: init, start, update, deinit, event, key, mouse, message
 	g.Define("handler_kind", grammargen.Choice(
 		grammargen.Str("init"),
 		grammargen.Str("start"),
 		grammargen.Str("update"),
 		grammargen.Str("deinit"),
 		grammargen.Str("event"),
+		grammargen.Str("key"),
+		grammargen.Str("mouse"),
 		grammargen.Str("message"),
 	))
 

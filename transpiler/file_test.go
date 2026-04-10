@@ -92,6 +92,54 @@ func TestTranspileFileWithECS(t *testing.T) {
 	}
 }
 
+func TestTranspileFileEntityLifetimeBuiltins(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "Spawner",
+				Handlers: []ast.Handler{
+					{Kind: ast.HandlerUpdate, Body: "let _shot = ecs.spawn(Projectile { damage: 1.0 }) lifetime 0.5;"},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "pub struct FyxEntityLifetime") {
+		t.Fatalf("entity lifetime helper should be emitted when ecs lifetime sugar is used: %s", out)
+	}
+	if !strings.Contains(out, "fyx_run_builtin_systems(world, ctx);") {
+		t.Fatalf("builtin lifetime runner should be called from the ECS runner: %s", out)
+	}
+}
+
+func TestTranspileFileStateMachineIntegration(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "Enemy",
+				States: []ast.State{
+					{
+						Name: "idle",
+						Handlers: []ast.StateHandler{
+							{Kind: ast.StateHandlerUpdate, Body: `go alert;`},
+						},
+					},
+					{Name: "alert"},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "enum EnemyState") {
+		t.Fatalf("state machine enum should be emitted in full file output: %s", out)
+	}
+	if !strings.Contains(out, "self._fyx_transition = Some(EnemyState::Alert);") {
+		t.Fatalf("state transitions should survive file-level lowering: %s", out)
+	}
+}
+
 func TestTranspileFileOrdering(t *testing.T) {
 	file := ast.File{
 		RustItems: []ast.RustItem{

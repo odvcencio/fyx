@@ -19,6 +19,10 @@ func TranspileScript(s ast.Script) string {
 
 // EmitScript writes a complete script definition into an emitter.
 func EmitScript(e *RustEmitter, s ast.Script, opts Options) {
+	if hasStateMachine(s.States) {
+		emitStateEnum(e, s)
+		e.Blank()
+	}
 	emitStruct(e, s)
 	e.Blank()
 	emitDefaultImpl(e, s)
@@ -53,7 +57,7 @@ func hasDefaults(s ast.Script) bool {
 // (in on_start) rather than being struct field defaults.
 func isRuntimeResolved(f ast.Field) bool {
 	switch f.Modifier {
-	case ast.FieldNode, ast.FieldNodes, ast.FieldResource:
+	case ast.FieldNode, ast.FieldNodes, ast.FieldResource, ast.FieldTimer:
 		return true
 	}
 	return false
@@ -80,6 +84,9 @@ func emitStruct(e *RustEmitter, s ast.Script) {
 func emitFieldAnnotations(e *RustEmitter, f ast.Field) {
 	switch f.Modifier {
 	case ast.FieldBare:
+		e.LineWithSource("#[reflect(hidden)]", f.Line)
+		e.LineWithSource("#[visit(skip)]", f.Line)
+	case ast.FieldTimer:
 		e.LineWithSource("#[reflect(hidden)]", f.Line)
 		e.LineWithSource("#[visit(skip)]", f.Line)
 	case ast.FieldDerived:
@@ -124,6 +131,9 @@ func emitDefaultImpl(e *RustEmitter, s ast.Script) {
 	e.Indent()
 
 	for _, f := range s.Fields {
+		if emitRuntimeFieldDefault(e, f) {
+			continue
+		}
 		if isShadowField(f) || f.Modifier == ast.FieldDerived {
 			e.LineWithSource(fmt.Sprintf("%s: Default::default(),", f.Name), f.Line)
 			continue
@@ -180,10 +190,10 @@ func emitScriptTraitImpl(e *RustEmitter, s ast.Script, opts Options) {
 		}
 		if h.Kind == ast.HandlerStart && needsOnStart {
 			// Merge generated resolution code with user body
-			emitMergedOnStart(e, s.Fields, h, s.Name)
+			emitMergedOnStart(e, s.Fields, s.States, h, s.Name)
 			emittedOnStart = true
 		} else {
-			emitHandler(e, h, s.Fields, s.Name, opts)
+			emitHandler(e, h, s.Fields, s.States, s.Name, opts)
 		}
 		handlerCount++
 	}
@@ -193,7 +203,7 @@ func emitScriptTraitImpl(e *RustEmitter, s ast.Script, opts Options) {
 		if handlerCount > 0 {
 			e.Blank()
 		}
-		emitMergedOnStart(e, s.Fields, ast.Handler{Kind: ast.HandlerStart, Line: s.Line}, s.Name)
+		emitMergedOnStart(e, s.Fields, s.States, ast.Handler{Kind: ast.HandlerStart, Line: s.Line}, s.Name)
 	}
 
 	e.Dedent()
@@ -202,7 +212,7 @@ func emitScriptTraitImpl(e *RustEmitter, s ast.Script, opts Options) {
 
 // emitMergedOnStart emits an on_start handler with node/resource resolution code
 // prepended before any user-provided body.
-func emitMergedOnStart(e *RustEmitter, fields []ast.Field, h ast.Handler, scriptName string) {
+func emitMergedOnStart(e *RustEmitter, fields []ast.Field, states []ast.State, h ast.Handler, scriptName string) {
 	line := h.Line
 	if line == 0 {
 		line = 1
@@ -219,7 +229,7 @@ func emitMergedOnStart(e *RustEmitter, fields []ast.Field, h ast.Handler, script
 
 	userBody := strings.TrimSpace(h.Body)
 	if userBody != "" {
-		emitHandlerBodyBlock(e, userBody, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, userBody, h.BodyLine, fields, states, h.Kind, scriptName)
 	}
 
 	e.LineWithSource("Ok(())", line)
@@ -228,13 +238,13 @@ func emitMergedOnStart(e *RustEmitter, fields []ast.Field, h ast.Handler, script
 }
 
 // emitHandler emits a single handler method within the ScriptTrait impl.
-func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName string, opts Options) {
+func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, states []ast.State, scriptName string, opts Options) {
 	switch h.Kind {
 	case ast.HandlerInit:
 		e.LineWithSource("#[allow(unused_variables)]", h.Line)
 		e.LineWithSource("fn on_init(&mut self, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
 		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
@@ -243,7 +253,7 @@ func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName s
 		e.LineWithSource("#[allow(unused_variables)]", h.Line)
 		e.LineWithSource("fn on_start(&mut self, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
 		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
@@ -252,7 +262,7 @@ func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName s
 		e.LineWithSource("#[allow(unused_variables)]", h.Line)
 		e.LineWithSource("fn on_update(&mut self, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
 		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
@@ -261,27 +271,55 @@ func emitHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName s
 		e.LineWithSource("#[allow(unused_variables)]", h.Line)
 		e.LineWithSource("fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
 		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
 
 	case ast.HandlerEvent:
-		emitEventHandler(e, h, fields, scriptName)
+		emitEventHandler(e, h, fields, states, scriptName)
+
+	case ast.HandlerKey:
+		emitKeyHandler(e, h, fields, states, scriptName)
+
+	case ast.HandlerMouse:
+		emitMouseHandler(e, h, fields, states, scriptName)
 
 	case ast.HandlerMessage:
 		e.LineWithSource("#[allow(unused_variables)]", h.Line)
 		e.LineWithSource("fn on_message(&mut self, message: &mut dyn ScriptMessagePayload, ctx: &mut ScriptMessageContext) -> GameResult {", h.Line)
 		e.Indent()
-		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
 		e.LineWithSource("Ok(())", h.Line)
 		e.Dedent()
 		e.LineWithSource("}", h.Line)
 	}
 }
 
+func nonCtxParams(params []ast.Param) []ast.Param {
+	var filtered []ast.Param
+	for _, p := range params {
+		if p.Name == "ctx" {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return filtered
+}
+
+func eventMatchPattern(param ast.Param) string {
+	switch param.TypeExpr {
+	case "KeyboardInput":
+		return fmt.Sprintf("WindowEvent::KeyboardInput { event: %s, .. }", param.Name)
+	case "MouseButton":
+		return fmt.Sprintf("WindowEvent::MouseInput { button: %s, .. }", param.Name)
+	default:
+		return fmt.Sprintf("WindowEvent::%s(%s)", param.TypeExpr, param.Name)
+	}
+}
+
 // emitEventHandler emits an OS event handler with if-let matching on the event type.
-func emitEventHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptName string) {
+func emitEventHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, states []ast.State, scriptName string) {
 	e.LineWithSource("#[allow(unused_variables)]", h.Line)
 	e.LineWithSource("fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {", h.Line)
 	e.Indent()
@@ -296,13 +334,13 @@ func emitEventHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptN
 	}
 
 	if evParam != nil {
-		e.LineWithSource(fmt.Sprintf("if let Event::WindowEvent { event: WindowEvent::%s(%s), .. } = event {", evParam.TypeExpr, evParam.Name), h.Line)
+		e.LineWithSource(fmt.Sprintf("if let Event::WindowEvent { event: %s, .. } = event {", eventMatchPattern(*evParam)), h.Line)
 		e.Indent()
-		emitHandlerBody(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBody(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
 		e.Dedent()
 		e.LineWithSource("};", h.Line)
 	} else {
-		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, h.Kind, scriptName)
+		emitHandlerBodyBlock(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
 	}
 
 	e.LineWithSource("Ok(())", h.Line)
@@ -310,21 +348,97 @@ func emitEventHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, scriptN
 	e.LineWithSource("}", h.Line)
 }
 
-func emitHandlerBodyBlock(e *RustEmitter, body string, sourceLine int, fields []ast.Field, kind ast.HandlerKind, scriptName string) {
+func emitKeyHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, states []ast.State, scriptName string) {
+	e.LineWithSource("#[allow(unused_variables)]", h.Line)
+	e.LineWithSource("fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {", h.Line)
+	e.Indent()
+
+	params := nonCtxParams(h.Params)
+	codeName := "__fyx_key_code"
+	if len(params) >= 1 {
+		codeName = params[0].Name
+	}
+	pressedName := ""
+	if len(params) >= 2 {
+		pressedName = params[1].Name
+	}
+	inputName := ""
+	if len(params) >= 3 {
+		inputName = params[2].Name
+	}
+
+	e.LineWithSource("if let Event::WindowEvent { event: WindowEvent::KeyboardInput { event: input, .. }, .. } = event {", h.Line)
+	e.Indent()
+	e.LineWithSource(fmt.Sprintf("if let fyrox::keyboard::PhysicalKey::Code(%s) = input.physical_key {", codeName), h.Line)
+	e.Indent()
+	if pressedName != "" {
+		e.LineWithSource(fmt.Sprintf("let %s = matches!(input.state, fyrox::event::ElementState::Pressed);", pressedName), h.Line)
+	}
+	if inputName != "" {
+		e.LineWithSource(fmt.Sprintf("let %s = input;", inputName), h.Line)
+	}
+	emitHandlerBody(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
+	e.Dedent()
+	e.LineWithSource("}", h.Line)
+	e.Dedent()
+	e.LineWithSource("};", h.Line)
+
+	e.LineWithSource("Ok(())", h.Line)
+	e.Dedent()
+	e.LineWithSource("}", h.Line)
+}
+
+func emitMouseHandler(e *RustEmitter, h ast.Handler, fields []ast.Field, states []ast.State, scriptName string) {
+	e.LineWithSource("#[allow(unused_variables)]", h.Line)
+	e.LineWithSource("fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {", h.Line)
+	e.Indent()
+
+	params := nonCtxParams(h.Params)
+	buttonName := "__fyx_mouse_button"
+	if len(params) >= 1 {
+		buttonName = params[0].Name
+	}
+	pressedName := ""
+	if len(params) >= 2 {
+		pressedName = params[1].Name
+	}
+	stateName := ""
+	if len(params) >= 3 {
+		stateName = params[2].Name
+	}
+
+	e.LineWithSource(fmt.Sprintf("if let Event::WindowEvent { event: WindowEvent::MouseInput { state, button: %s, .. }, .. } = event {", buttonName), h.Line)
+	e.Indent()
+	if pressedName != "" {
+		e.LineWithSource(fmt.Sprintf("let %s = matches!(*state, fyrox::event::ElementState::Pressed);", pressedName), h.Line)
+	}
+	if stateName != "" {
+		e.LineWithSource(fmt.Sprintf("let %s = state;", stateName), h.Line)
+	}
+	emitHandlerBody(e, h.Body, h.BodyLine, fields, states, h.Kind, scriptName)
+	e.Dedent()
+	e.LineWithSource("};", h.Line)
+
+	e.LineWithSource("Ok(())", h.Line)
+	e.Dedent()
+	e.LineWithSource("}", h.Line)
+}
+
+func emitHandlerBodyBlock(e *RustEmitter, body string, sourceLine int, fields []ast.Field, states []ast.State, kind ast.HandlerKind, scriptName string) {
 	if strings.TrimSpace(body) == "" {
 		return
 	}
 	e.LineWithSource("{", sourceLine)
 	e.Indent()
-	emitHandlerBody(e, body, sourceLine, fields, kind, scriptName)
+	emitHandlerBody(e, body, sourceLine, fields, states, kind, scriptName)
 	e.Dedent()
 	e.LineWithSource("};", sourceLine)
 }
 
 // emitHandlerBody emits the body of a handler, line by line, with source mapping.
-func emitHandlerBody(e *RustEmitter, body string, sourceLine int, fields []ast.Field, kind ast.HandlerKind, scriptName string) {
+func emitHandlerBody(e *RustEmitter, body string, sourceLine int, fields []ast.Field, states []ast.State, kind ast.HandlerKind, scriptName string) {
 	if scriptName != "" {
-		body = RewriteBody(body, scriptName, fields, kind)
+		body = RewriteBodyWithStates(body, scriptName, fields, states, kind)
 	}
 	body = strings.TrimSpace(body)
 	if body == "" {

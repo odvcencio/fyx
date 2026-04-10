@@ -2,8 +2,13 @@
 /fyxc
 /runtime/target/
 /proofs/*/target/
+/crates/*/target/
+/crates/*/Cargo.lock
 /data/resources.registry
 /*.log
+
+/editors/vscode/node_modules/
+/editors/vscode/out/
 
 *.fyxmap.json
 *.rs.bk

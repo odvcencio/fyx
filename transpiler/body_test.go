@@ -93,6 +93,23 @@ func TestRewriteSpawnLoadedModelResourceField(t *testing.T) {
 	}
 }
 
+func TestRewriteSpawnLoadedModelResourceAliases(t *testing.T) {
+	body := `let prefab = self.prefab;
+let active_prefab = prefab;
+let goblin = spawn active_prefab at pos;`
+	fields := []ast.Field{
+		{Modifier: ast.FieldResource, Name: "prefab", TypeExpr: "Model"},
+	}
+
+	out := RewriteBody(body, "Spawner", fields, ast.HandlerUpdate)
+	if !strings.Contains(out, `let _resource = active_prefab.clone().expect("Fyx resource field 'prefab' was not loaded before spawn");`) {
+		t.Errorf("model resource aliases should spawn from the loaded resource: %s", out)
+	}
+	if strings.Contains(out, "request::<Model>(active_prefab.clone())") {
+		t.Errorf("model resource aliases should not be re-requested: %s", out)
+	}
+}
+
 func TestRewriteSpawnPreservesStatementBoundary(t *testing.T) {
 	body := `let goblin = spawn self.prefab at pos;
 let after = 1;`
@@ -185,6 +202,290 @@ projectile.set_visibility(false);`
 	}
 }
 
+func TestRewriteNodesFieldIndexAliases(t *testing.T) {
+	body := `let first_digit = self.ammo_digits[0];
+let first_pos = self.ammo_digits[1].position();
+let parent = first_digit.parent();
+if let Some(weapon) = first_digit.script::<Weapon>() {
+    let _ = (first_pos, parent, weapon);
+}
+first_digit.set_text("9");`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNodes, Name: "ammo_digits"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, "let first_pos = ctx.scene.graph[self.ammo_digits[1]].global_position();") {
+		t.Errorf("indexed nodes fields should expose position() sugar: %s", out)
+	}
+	if !strings.Contains(out, "let parent = ctx.scene.graph[first_digit].parent();") {
+		t.Errorf("aliases from indexed nodes fields should expose parent() sugar: %s", out)
+	}
+	if !strings.Contains(out, "if let Some(weapon) = ctx.scene.graph[first_digit].script::<Weapon>() {") {
+		t.Errorf("aliases from indexed nodes fields should expose script::<T>() sugar: %s", out)
+	}
+	if !strings.Contains(out, `ctx.scene.graph[first_digit].set_text("9");`) {
+		t.Errorf("aliases from indexed nodes fields should expose node methods: %s", out)
+	}
+}
+
+func TestRewriteNodesFieldLoopAliases(t *testing.T) {
+	body := `for digit in self.ammo_digits {
+    let parent = digit.parent();
+    digit.set_text("9");
+    let _ = parent;
+}`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNodes, Name: "ammo_digits"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, "let parent = ctx.scene.graph[digit].parent();") {
+		t.Errorf("loop-bound nodes field handles should expose parent() sugar: %s", out)
+	}
+	if !strings.Contains(out, "for digit in self.ammo_digits.iter().cloned() {") {
+		t.Errorf("bare nodes field loops should lower to cloned handle iteration: %s", out)
+	}
+	if !strings.Contains(out, `ctx.scene.graph[digit].set_text("9");`) {
+		t.Errorf("loop-bound nodes field handles should expose node methods: %s", out)
+	}
+}
+
+func TestRewriteNodeChildrenLoopAliases(t *testing.T) {
+	body := `let crosshair = self.crosshair;
+for reticle_part in crosshair.children() {
+    let part_parent = reticle_part.parent();
+    reticle_part.set_visibility(true);
+    let _ = part_parent;
+}`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "crosshair"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, "for reticle_part in ctx.scene.graph[crosshair].children().to_vec().into_iter() {") {
+		t.Errorf("node children() iterators should materialize owned handles for authored loops: %s", out)
+	}
+	if !strings.Contains(out, "let part_parent = ctx.scene.graph[reticle_part].parent();") {
+		t.Errorf("loop-bound children handles should expose parent() sugar: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[reticle_part].set_visibility(true);") {
+		t.Errorf("loop-bound children handles should expose node methods: %s", out)
+	}
+}
+
+func TestRewriteNodesFieldBulkMethodCall(t *testing.T) {
+	body := `self.ammo_digits.set_text("9");`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNodes, Name: "ammo_digits"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, "for __fyx_item_0 in self.ammo_digits.iter().cloned() {") {
+		t.Errorf("nodes field bulk method calls should lower to collection loops: %s", out)
+	}
+	if !strings.Contains(out, `ctx.scene.graph[__fyx_item_0].set_text("9");`) {
+		t.Errorf("nodes field bulk method calls should target each node handle: %s", out)
+	}
+}
+
+func TestRewriteNodeChildrenBulkMethodCall(t *testing.T) {
+	body := `let crosshair = self.crosshair;
+crosshair.children().set_visibility(true);`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "crosshair"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, "for __fyx_item_0 in ctx.scene.graph[crosshair].children().to_vec().into_iter() {") {
+		t.Errorf("children() bulk method calls should lower to owned traversal loops: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[__fyx_item_0].set_visibility(true);") {
+		t.Errorf("children() bulk method calls should target each child handle: %s", out)
+	}
+}
+
+func TestRewriteRelativeNodeFindAliases(t *testing.T) {
+	body := `let crosshair = self.crosshair;
+let reticle_ring = crosshair.find("Reticle/Ring");
+let ring_parent = reticle_ring.parent();
+reticle_ring.set_visibility(true);`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "crosshair"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, `let reticle_ring = fyx_find_relative_node_path(&ctx.scene.graph, crosshair, "Reticle/Ring");`) {
+		t.Errorf("relative find() should lower to the generated scene helper: %s", out)
+	}
+	if !strings.Contains(out, "let ring_parent = ctx.scene.graph[reticle_ring].parent();") {
+		t.Errorf("relative find() aliases should keep handle sugar: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[reticle_ring].set_visibility(true);") {
+		t.Errorf("relative find() aliases should keep node methods: %s", out)
+	}
+}
+
+func TestRewriteTypedRelativeNodeFindAliases(t *testing.T) {
+	body := `let crosshair = self.crosshair;
+let reticle_ring = crosshair.find::<Sprite>("Reticle/Ring");
+reticle_ring.set_visibility(true);`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "crosshair"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, `let reticle_ring = fyx_expect_node_type::<Sprite>(&ctx.scene.graph, fyx_find_relative_node_path(&ctx.scene.graph, crosshair, "Reticle/Ring"), "Reticle/Ring", "Sprite");`) {
+		t.Errorf("typed relative find() should lower through fyx_expect_node_type: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[reticle_ring].set_visibility(true);") {
+		t.Errorf("typed relative find() aliases should keep node methods: %s", out)
+	}
+}
+
+func TestRewriteRelativeNodeFindAllLoopAndBulkCall(t *testing.T) {
+	body := `let crosshair = self.crosshair;
+crosshair.find_all("Marks/*").set_visibility(true);
+for mark in crosshair.find_all("Marks/*") {
+    let parent = mark.parent();
+    mark.set_visibility(false);
+    let _ = parent;
+}`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "crosshair"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, `for __fyx_item_0 in fyx_find_relative_nodes_path(&ctx.scene.graph, crosshair, "Marks/*").into_iter() {`) {
+		t.Errorf("relative find_all() bulk calls should lower to collection loops: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[__fyx_item_0].set_visibility(true);") {
+		t.Errorf("relative find_all() bulk calls should target each resolved handle: %s", out)
+	}
+	if !strings.Contains(out, `for mark in fyx_find_relative_nodes_path(&ctx.scene.graph, crosshair, "Marks/*").into_iter() {`) {
+		t.Errorf("relative find_all() loops should lower to iterator traversal: %s", out)
+	}
+	if !strings.Contains(out, "let parent = ctx.scene.graph[mark].parent();") {
+		t.Errorf("relative find_all() loop aliases should keep handle sugar: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[mark].set_visibility(false);") {
+		t.Errorf("relative find_all() loop aliases should keep node methods: %s", out)
+	}
+}
+
+func TestRewriteTypedRelativeNodeFindAllLoopAndBulkCall(t *testing.T) {
+	body := `let crosshair = self.crosshair;
+crosshair.find_all::<Sprite>("Marks/*").set_visibility(true);
+for mark in crosshair.find_all::<Sprite>("Marks/*") {
+    mark.set_visibility(false);
+}`
+	fields := []ast.Field{
+		{Modifier: ast.FieldNode, Name: "crosshair"},
+	}
+
+	out := RewriteBody(body, "WeaponHUD", fields, ast.HandlerMessage)
+	if !strings.Contains(out, `for __fyx_item_0 in fyx_expect_nodes_type::<Sprite>(&ctx.scene.graph, fyx_find_relative_nodes_path(&ctx.scene.graph, crosshair, "Marks/*"), "Marks/*", "Sprite").into_iter() {`) {
+		t.Errorf("typed relative find_all() bulk calls should lower through fyx_expect_nodes_type: %s", out)
+	}
+	if !strings.Contains(out, `for mark in fyx_expect_nodes_type::<Sprite>(&ctx.scene.graph, fyx_find_relative_nodes_path(&ctx.scene.graph, crosshair, "Marks/*"), "Marks/*", "Sprite").into_iter() {`) {
+		t.Errorf("typed relative find_all() loops should lower through fyx_expect_nodes_type: %s", out)
+	}
+}
+
+func TestRewriteGlobalSceneFindAliases(t *testing.T) {
+	body := `let reticle_ring = scene.find("UI/Crosshair/Reticle/Ring");
+let ring_parent = reticle_ring.parent();
+reticle_ring.set_visibility(true);`
+
+	out := RewriteBody(body, "WeaponHUD", nil, ast.HandlerMessage)
+	if !strings.Contains(out, `let reticle_ring = fyx_find_node_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Ring");`) {
+		t.Errorf("scene.find() should lower to the generated global scene helper: %s", out)
+	}
+	if !strings.Contains(out, "let ring_parent = ctx.scene.graph[reticle_ring].parent();") {
+		t.Errorf("scene.find() aliases should keep handle sugar: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[reticle_ring].set_visibility(true);") {
+		t.Errorf("scene.find() aliases should keep node methods: %s", out)
+	}
+}
+
+func TestRewriteTypedGlobalSceneFindAliases(t *testing.T) {
+	body := `let reticle_ring = scene.find::<Sprite>("UI/Crosshair/Reticle/Ring");
+reticle_ring.set_visibility(true);`
+
+	out := RewriteBody(body, "WeaponHUD", nil, ast.HandlerMessage)
+	if !strings.Contains(out, `let reticle_ring = fyx_expect_node_type::<Sprite>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Ring"), "UI/Crosshair/Reticle/Ring", "Sprite");`) {
+		t.Errorf("typed scene.find() should lower through fyx_expect_node_type: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[reticle_ring].set_visibility(true);") {
+		t.Errorf("typed scene.find() aliases should keep node methods: %s", out)
+	}
+}
+
+func TestRewriteGlobalSceneFindAllLoopAndBulkCall(t *testing.T) {
+	body := `scene.find_all("UI/Crosshair/Reticle/Marks/*").set_visibility(true);
+for mark in scene.find_all("UI/Crosshair/Reticle/Marks/*") {
+    let parent = mark.parent();
+    mark.set_visibility(false);
+    let _ = parent;
+}`
+
+	out := RewriteBody(body, "WeaponHUD", nil, ast.HandlerMessage)
+	if !strings.Contains(out, `for __fyx_item_0 in fyx_find_nodes_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Marks/*").into_iter() {`) {
+		t.Errorf("scene.find_all() bulk calls should lower to collection loops: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[__fyx_item_0].set_visibility(true);") {
+		t.Errorf("scene.find_all() bulk calls should target each resolved handle: %s", out)
+	}
+	if !strings.Contains(out, `for mark in fyx_find_nodes_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Marks/*").into_iter() {`) {
+		t.Errorf("scene.find_all() loops should lower to iterator traversal: %s", out)
+	}
+	if !strings.Contains(out, "let parent = ctx.scene.graph[mark].parent();") {
+		t.Errorf("scene.find_all() loop aliases should keep handle sugar: %s", out)
+	}
+}
+
+func TestRewriteTypedGlobalSceneFindAllLoopAndBulkCall(t *testing.T) {
+	body := `scene.find_all::<Sprite>("UI/Crosshair/Reticle/Marks/*").set_visibility(true);
+for mark in scene.find_all::<Sprite>("UI/Crosshair/Reticle/Marks/*") {
+    mark.set_visibility(false);
+}`
+
+	out := RewriteBody(body, "WeaponHUD", nil, ast.HandlerMessage)
+	if !strings.Contains(out, `for __fyx_item_0 in fyx_expect_nodes_type::<Sprite>(&ctx.scene.graph, fyx_find_nodes_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Marks/*"), "UI/Crosshair/Reticle/Marks/*", "Sprite").into_iter() {`) {
+		t.Errorf("typed scene.find_all() bulk calls should lower through fyx_expect_nodes_type: %s", out)
+	}
+	if !strings.Contains(out, `for mark in fyx_expect_nodes_type::<Sprite>(&ctx.scene.graph, fyx_find_nodes_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Marks/*"), "UI/Crosshair/Reticle/Marks/*", "Sprite").into_iter() {`) {
+		t.Errorf("typed scene.find_all() loops should lower through fyx_expect_nodes_type: %s", out)
+	}
+}
+
+func TestRewriteScriptContextShorthands(t *testing.T) {
+	body := `let hit = scene.physics.raycast(origin, direction, 4.0);
+graph.remove_node(doomed);
+let prefab = resources.request::<Model>("res://models/projectile.rgs");
+messages.send_global(WeaponFiredMsg { position: origin, direction: direction });
+dispatcher.subscribe_to::<WeaponFiredMsg>(ctx.handle);
+let _ = (hit, prefab);`
+
+	out := RewriteBody(body, "Weapon", nil, ast.HandlerStart)
+	if !strings.Contains(out, "let hit = ctx.scene.physics.raycast(origin, direction, 4.0);") {
+		t.Errorf("scene shorthand should lower to ctx.scene: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph.remove_node(doomed);") {
+		t.Errorf("graph shorthand should lower to ctx.scene.graph: %s", out)
+	}
+	if !strings.Contains(out, `let prefab = ctx.resource_manager.request::<Model>("res://models/projectile.rgs");`) {
+		t.Errorf("resources shorthand should lower to ctx.resource_manager: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_sender.send_global(WeaponFiredMsg { position: origin, direction: direction });") {
+		t.Errorf("messages shorthand should lower to ctx.message_sender: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_dispatcher.subscribe_to::<WeaponFiredMsg>(ctx.handle);") {
+		t.Errorf("dispatcher shorthand should lower to ctx.message_dispatcher: %s", out)
+	}
+}
+
 func TestRewriteDtShorthand(t *testing.T) {
 	body := `self.cooldown -= dt;`
 	out := RewriteBody(body, "Weapon", nil, ast.HandlerUpdate)
@@ -193,6 +494,38 @@ func TestRewriteDtShorthand(t *testing.T) {
 	}
 	if !strings.Contains(out, "self.cooldown -= dt;") {
 		t.Errorf("body should be preserved: %s", out)
+	}
+}
+
+func TestRewriteTimerSugar(t *testing.T) {
+	body := `if fire_cooldown.ready {
+    fire_cooldown.reset();
+}`
+	fields := []ast.Field{
+		{Modifier: ast.FieldTimer, Name: "fire_cooldown", TypeExpr: "f32", Default: "self.fire_rate"},
+	}
+
+	out := RewriteBody(body, "Weapon", fields, ast.HandlerUpdate)
+	if !strings.Contains(out, "if (self.fire_cooldown <= 0.0) {") {
+		t.Fatalf("timer ready checks should lower to explicit cooldown tests: %s", out)
+	}
+	if !strings.Contains(out, "self.fire_cooldown = self.fire_rate;") {
+		t.Fatalf("timer reset should lower to the authored reset duration: %s", out)
+	}
+}
+
+func TestRewriteStateTransitions(t *testing.T) {
+	body := `if see_player() {
+    go alert;
+}`
+	states := []ast.State{
+		{Name: "idle"},
+		{Name: "alert"},
+	}
+
+	out := RewriteBodyWithStates(body, "Enemy", nil, states, ast.HandlerUpdate)
+	if !strings.Contains(out, "self._fyx_transition = Some(EnemyState::Alert);") {
+		t.Fatalf("state transitions should lower to explicit enum transitions: %s", out)
 	}
 }
 
@@ -212,5 +545,30 @@ func TestRewriteScriptEcsSpawnSingleComponent(t *testing.T) {
 	out := RewriteBody(body, "Spawner", nil, ast.HandlerUpdate)
 	if !strings.Contains(out, "ctx.ecs.spawn((Marker { active: true },))") {
 		t.Errorf("single-component ecs.spawn should become a single-element tuple: %s", out)
+	}
+}
+
+func TestRewriteScriptSceneSpawnLifetime(t *testing.T) {
+	body := `let projectile = spawn projectile_prefab at origin lifetime 1.0;`
+	fields := []ast.Field{
+		{Modifier: ast.FieldResource, Name: "projectile_prefab", TypeExpr: "Model"},
+		{Modifier: ast.FieldBare, Name: sceneLifetimeFieldName, TypeExpr: sceneLifetimeFieldType},
+	}
+
+	out := RewriteBody(body, "Weapon", fields, ast.HandlerUpdate)
+	if !strings.Contains(out, "self._fyx_scene_lifetimes.push(FyxSceneLifetime { handle: _inst, remaining: 1.0 });") {
+		t.Fatalf("scene spawn lifetime should register auto-cleanup on the owning script: %s", out)
+	}
+}
+
+func TestRewriteScriptEcsSpawnLifetime(t *testing.T) {
+	body := `let shot = ecs.spawn(
+    Projectile { damage: 25.0 },
+    Velocity { linear: Vector3::default(), angular: Vector3::default() },
+) lifetime 1.0;`
+
+	out := RewriteBody(body, "Spawner", nil, ast.HandlerUpdate)
+	if !strings.Contains(out, "ctx.ecs.spawn((Projectile { damage: 25.0 }, Velocity { linear: Vector3::default(), angular: Vector3::default() }, FyxEntityLifetime { remaining: 1.0 }))") {
+		t.Fatalf("ecs lifetime spawn should append the builtin lifetime component: %s", out)
 	}
 }

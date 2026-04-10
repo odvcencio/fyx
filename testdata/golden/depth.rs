@@ -25,6 +25,64 @@ use fyrox::graph::SceneGraph;
 #[allow(unused_imports)]
 use fyrox::scene::graph::Graph;
 
+fn fyx_find_relative_node_path(graph: &Graph, root: Handle<Node>, path: &str) -> Handle<Node> {
+    let parts = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        panic!("Fyx relative node path is empty");
+    };
+    let mut current = root;
+    for segment in parts {
+        match segment {
+            "." => {}
+            ".." => {
+                current = graph
+                    .try_get_node(current)
+                    .map(|node| node.parent())
+                    .unwrap_or_else(|_| panic!("Fyx relative node path not found: {}", path));
+            }
+            name => {
+                let current_node = graph
+                    .try_get_node(current)
+                    .unwrap_or_else(|_| panic!("Fyx relative node path not found: {}", path));
+                let Some(next) = current_node.children().iter().copied().find(|child| {
+                    graph
+                        .try_get_node(*child)
+                        .map(|node| node.name() == name)
+                        .unwrap_or(false)
+                }) else {
+                    panic!("Fyx relative node path not found: {}", path);
+                };
+                current = next;
+            }
+        }
+    }
+    current
+}
+
+fn fyx_find_relative_nodes_path(graph: &Graph, root: Handle<Node>, pattern: &str) -> Vec<Handle<Node>> {
+    if pattern == "*" {
+        return graph
+            .try_get_node(root)
+            .map(|node| node.children().to_vec())
+            .unwrap_or_else(|_| panic!("Fyx relative node path not found: {}", pattern));
+    }
+    if let Some(parent_path) = pattern.strip_suffix("/*") {
+        let parent = if parent_path.is_empty() || parent_path == "." {
+            root
+        } else {
+            fyx_find_relative_node_path(graph, root, parent_path)
+        };
+        return graph
+            .try_get_node(parent)
+            .map(|node| node.children().to_vec())
+            .unwrap_or_else(|_| panic!("Fyx relative node path not found: {}", pattern));
+    }
+    vec![fyx_find_relative_node_path(graph, root, pattern)]
+}
+
 fn fyx_find_node_path(graph: &Graph, path: &str) -> Handle<Node> {
     let parts = path
         .split('/')
@@ -235,9 +293,12 @@ impl ScriptTrait for TurretController {
 
     #[allow(unused_variables)]
     fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {
-        if let Event::WindowEvent { event: WindowEvent::MouseButton(button), .. } = event {
+        if let Event::WindowEvent { event: WindowEvent::MouseInput { state, button: button, .. }, .. } = event {
+            let pressed = matches!(*state, fyrox::event::ElementState::Pressed);
             let _ = button;
-                    ctx.scene.graph[self.pivot].set_rotation_y(self.turn_rate * 0.25);
+                    if pressed {
+                        ctx.scene.graph[self.pivot].set_rotation_y(self.turn_rate * 0.25);
+                    }
         };
         Ok(())
     }

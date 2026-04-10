@@ -53,9 +53,11 @@ script TurretController {
         }
     }
 
-    on event(button: MouseButton, ctx) {
+    on mouse(button, pressed, ctx) {
         let _ = button;
-        self.pivot.rotate_y(self.turn_rate * 0.25);
+        if pressed {
+            self.pivot.rotate_y(self.turn_rate * 0.25);
+        }
     }
 
     on deinit(ctx) {

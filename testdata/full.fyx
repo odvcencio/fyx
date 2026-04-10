@@ -14,26 +14,43 @@ script Weapon {
     signal fired(position: Vector3, direction: Vector3)
     signal emptied()
 
-    cooldown: f32
+    timer fire_cooldown = self.fire_rate
 
-    on update(ctx) {
-        self.cooldown -= dt;
-        self.flash.set_visibility(false);
-
-        if self.ammo > 0 && self.cooldown <= 0.0 {
-            let muzzle = self.muzzle;
-            let origin = muzzle.position();
-            let direction = muzzle.forward();
-            let projectile = spawn self.projectile_prefab at origin;
-            let projectile_origin = projectile.position();
-            let _shot = ecs.spawn(
-                Projectile { damage: self.damage, owner: projectile, lifetime: 1.0 },
-                Velocity { linear: direction * 24.0, angular: Vector3::default() },
-            );
-            emit fired(projectile_origin, direction);
+    state armed {
+        on update {
             self.flash.set_visibility(true);
-            self.cooldown = self.fire_rate;
-            self.ammo -= 1;
+            if self.ammo <= 0 {
+                go empty;
+            }
+            if self.ammo > 0 && fire_cooldown.ready {
+                let muzzle = self.muzzle;
+                let origin = muzzle.position();
+                let direction = muzzle.forward();
+                let projectile_prefab = self.projectile_prefab;
+                let projectile = spawn projectile_prefab at origin lifetime 1.0;
+                let projectile_origin = projectile.position();
+                let _shot = ecs.spawn(
+                    Projectile { damage: self.damage, owner: projectile },
+                    Velocity { linear: direction * 24.0, angular: Vector3::default() },
+                ) lifetime 1.0;
+                emit fired(projectile_origin, direction);
+                self.flash.set_visibility(true);
+                fire_cooldown.reset();
+                self.ammo -= 1;
+                if self.ammo <= 0 {
+                    go empty;
+                }
+            }
+        }
+    }
+
+    state empty {
+        on enter {
+            emit emptied();
+        }
+
+        on update {
+            self.flash.set_visibility(false);
         }
     }
 }
@@ -41,12 +58,21 @@ script Weapon {
 script WeaponHUD {
     node ammo_label: Text = "UI/AmmoCount"
     node crosshair: Sprite = "UI/Crosshair"
+    nodes ammo_digits: Text = "UI/AmmoDigits/*"
 
     connect Weapon::fired(pos, dir) {
         self.crosshair.animate("kick");
         if let Some(weapon) = self.parent().script::<Weapon>() {
             let ammo_text = weapon.ammo_display.clone();
-            self.ammo_label.set_text(ammo_text);
+            self.ammo_label.set_text(ammo_text.clone());
+            let crosshair = self.crosshair;
+            let reticle_ring = scene.find::<Sprite>("UI/Crosshair/Reticle/Ring");
+            reticle_ring.set_visibility(true);
+            for reticle_part in crosshair.children() {
+                reticle_part.set_visibility(true);
+            }
+            scene.find_all::<Sprite>("UI/Crosshair/Reticle/Marks/*").set_visibility(true);
+            self.ammo_digits.set_text(ammo_text.clone());
         }
     }
 }
@@ -58,7 +84,6 @@ script Damageable {
 component Projectile {
     damage: f32
     owner: Handle<Node>
-    lifetime: f32
 }
 
 component Velocity {
@@ -69,12 +94,6 @@ component Velocity {
 system move_projectiles(dt: f32) {
     query(pos: &mut Transform, vel: &Velocity) {
         pos.translate(vel.linear * dt);
-    }
-}
-
-system expire_projectiles(dt: f32) {
-    query(entity: Entity, proj: &mut Projectile) {
-        proj.lifetime -= dt;
     }
 }
 

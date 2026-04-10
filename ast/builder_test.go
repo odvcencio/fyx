@@ -71,9 +71,37 @@ func TestBuildSignals(t *testing.T) {
 	}
 }
 
+func TestBuildInputHandlers(t *testing.T) {
+	l := lang(t)
+	source := []byte(`script Input {
+    on key(code, pressed) {
+        let _ = (code, pressed);
+    }
+
+    on mouse(button, pressed) {
+        let _ = (button, pressed);
+    }
+}`)
+	file, err := BuildAST(l, source)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	s := file.Scripts[0]
+	if len(s.Handlers) != 2 {
+		t.Fatalf("expected 2 handlers, got %d", len(s.Handlers))
+	}
+	if s.Handlers[0].Kind != HandlerKey {
+		t.Fatalf("expected first handler to be key, got %+v", s.Handlers[0])
+	}
+	if s.Handlers[1].Kind != HandlerMouse {
+		t.Fatalf("expected second handler to be mouse, got %+v", s.Handlers[1])
+	}
+}
+
 func TestBuildReactive(t *testing.T) {
 	l := lang(t)
 	source := []byte(`script HUD {
+    timer fire_cooldown = 0.1
     reactive health: f32 = 100.0
     derived is_low: bool = self.health < 20.0
 
@@ -86,14 +114,62 @@ func TestBuildReactive(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	s := file.Scripts[0]
-	if len(s.Fields) != 2 {
-		t.Fatalf("expected 2 fields, got %d", len(s.Fields))
+	if len(s.Fields) != 3 {
+		t.Fatalf("expected 3 fields, got %d", len(s.Fields))
 	}
-	if s.Fields[0].Modifier != FieldReactive || s.Fields[1].Modifier != FieldDerived {
-		t.Errorf("field modifiers: %+v, %+v", s.Fields[0], s.Fields[1])
+	if s.Fields[0].Modifier != FieldTimer || s.Fields[1].Modifier != FieldReactive || s.Fields[2].Modifier != FieldDerived {
+		t.Errorf("field modifiers: %+v, %+v, %+v", s.Fields[0], s.Fields[1], s.Fields[2])
 	}
 	if len(s.Watches) != 1 || s.Watches[0].Field != "self.is_low" {
 		t.Errorf("watches: %+v", s.Watches)
+	}
+}
+
+func TestBuildStateMachine(t *testing.T) {
+	l := lang(t)
+	source := []byte(`script Enemy {
+    state idle {
+        on enter {
+            play_sound("idle");
+        }
+        on update {
+            if see_player() {
+                go alert;
+            }
+        }
+    }
+
+    state alert {
+        on update {
+            chase_player();
+        }
+        on exit {
+            stop_sound();
+        }
+    }
+}`)
+	file, err := BuildAST(l, source)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	s := file.Scripts[0]
+	if len(s.States) != 2 {
+		t.Fatalf("expected 2 states, got %d", len(s.States))
+	}
+	if s.States[0].Name != "idle" || s.States[1].Name != "alert" {
+		t.Fatalf("unexpected state names: %+v", s.States)
+	}
+	if len(s.States[0].Handlers) != 2 {
+		t.Fatalf("expected idle state handlers, got %+v", s.States[0].Handlers)
+	}
+	if s.States[0].Handlers[0].Kind != StateHandlerEnter || s.States[0].Handlers[1].Kind != StateHandlerUpdate {
+		t.Fatalf("unexpected idle handler kinds: %+v", s.States[0].Handlers)
+	}
+	if len(s.States[1].Handlers) != 2 {
+		t.Fatalf("expected alert state handlers, got %+v", s.States[1].Handlers)
+	}
+	if s.States[1].Handlers[1].Kind != StateHandlerExit {
+		t.Fatalf("unexpected alert exit handler: %+v", s.States[1].Handlers)
 	}
 }
 

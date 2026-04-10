@@ -137,6 +137,76 @@ func TestTranspileScriptReactiveField(t *testing.T) {
 	}
 }
 
+func TestTranspileScriptTimerField(t *testing.T) {
+	s := ast.Script{
+		Name: "Weapon",
+		Fields: []ast.Field{
+			{Modifier: ast.FieldInspect, Name: "fire_rate", TypeExpr: "f32", Default: "0.1"},
+			{Modifier: ast.FieldTimer, Name: "fire_cooldown", TypeExpr: "f32", Default: "self.fire_rate"},
+		},
+		Handlers: []ast.Handler{
+			{Kind: ast.HandlerUpdate, Body: "if fire_cooldown.ready { fire_cooldown.reset(); }"},
+		},
+	}
+
+	e := NewEmitter()
+	EmitScript(e, transpileScriptFull(s, Options{}), Options{})
+	out := e.String()
+	if !strings.Contains(out, "#[reflect(hidden)]") {
+		t.Fatalf("timer field should be hidden: %s", out)
+	}
+	if !strings.Contains(out, "fire_cooldown: Default::default()") {
+		t.Fatalf("timer field should start ready by default: %s", out)
+	}
+	if !strings.Contains(out, "if self.fire_cooldown > 0.0 {") {
+		t.Fatalf("timer field should auto-tick in on_update: %s", out)
+	}
+	if !strings.Contains(out, "if (self.fire_cooldown <= 0.0) { self.fire_cooldown = self.fire_rate; }") {
+		t.Fatalf("timer sugar should lower to explicit cooldown checks: %s", out)
+	}
+}
+
+func TestTranspileScriptStateMachine(t *testing.T) {
+	s := ast.Script{
+		Name: "Enemy",
+		States: []ast.State{
+			{
+				Name: "idle",
+				Handlers: []ast.StateHandler{
+					{Kind: ast.StateHandlerEnter, Body: `play_sound("idle");`},
+					{Kind: ast.StateHandlerUpdate, Body: `if see_player() { go alert; }`},
+				},
+			},
+			{
+				Name: "alert",
+				Handlers: []ast.StateHandler{
+					{Kind: ast.StateHandlerEnter, Body: `play_sound("alert");`},
+					{Kind: ast.StateHandlerExit, Body: `stop_sound();`},
+				},
+			},
+		},
+	}
+
+	e := NewEmitter()
+	EmitScript(e, transpileScriptFull(s, Options{}), Options{})
+	out := e.String()
+	if !strings.Contains(out, "enum EnemyState") {
+		t.Fatalf("state machine should emit a dedicated hidden enum: %s", out)
+	}
+	if !strings.Contains(out, "_fyx_state: EnemyState") {
+		t.Fatalf("state machine should add hidden current-state storage: %s", out)
+	}
+	if !strings.Contains(out, "_fyx_transition: Option<EnemyState>") {
+		t.Fatalf("state machine should add hidden transition storage: %s", out)
+	}
+	if !strings.Contains(out, "match self._fyx_state {") {
+		t.Fatalf("state machine should dispatch through explicit matches: %s", out)
+	}
+	if !strings.Contains(out, "self._fyx_transition = Some(EnemyState::Alert);") {
+		t.Fatalf("go transitions should lower to explicit enum assignment: %s", out)
+	}
+}
+
 func TestTranspileScriptDerivedField(t *testing.T) {
 	s := ast.Script{
 		Name: "Computed",
@@ -225,11 +295,89 @@ func TestTranspileScriptEventHandler(t *testing.T) {
 	if !strings.Contains(out, "fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult") {
 		t.Errorf("missing on_os_event: %s", out)
 	}
-	if !strings.Contains(out, "WindowEvent::KeyboardInput(ev)") {
+	if !strings.Contains(out, "WindowEvent::KeyboardInput { event: ev, .. }") {
 		t.Errorf("missing if-let match: %s", out)
 	}
 	if !strings.Contains(out, "handle_key(ev);") {
 		t.Errorf("missing event body: %s", out)
+	}
+}
+
+func TestTranspileScriptMouseEventHandler(t *testing.T) {
+	s := ast.Script{
+		Name: "Pointer",
+		Handlers: []ast.Handler{
+			{
+				Kind: ast.HandlerEvent,
+				Params: []ast.Param{
+					{Name: "button", TypeExpr: "MouseButton"},
+					{Name: "ctx"},
+				},
+				Body: "handle_click(button);",
+			},
+		},
+	}
+	out := TranspileScript(s)
+	if !strings.Contains(out, "WindowEvent::MouseInput { button: button, .. }") {
+		t.Errorf("missing mouse-input if-let match: %s", out)
+	}
+	if !strings.Contains(out, "handle_click(button);") {
+		t.Errorf("missing event body: %s", out)
+	}
+}
+
+func TestTranspileScriptKeyHandler(t *testing.T) {
+	s := ast.Script{
+		Name: "Input",
+		Handlers: []ast.Handler{
+			{
+				Kind: ast.HandlerKey,
+				Params: []ast.Param{
+					{Name: "code"},
+					{Name: "pressed"},
+				},
+				Body: "handle_key(code, pressed);",
+			},
+		},
+	}
+	out := TranspileScript(s)
+	if !strings.Contains(out, "WindowEvent::KeyboardInput { event: input, .. }") {
+		t.Errorf("missing keyboard input match: %s", out)
+	}
+	if !strings.Contains(out, "if let fyrox::keyboard::PhysicalKey::Code(code) = input.physical_key {") {
+		t.Errorf("missing keycode extraction: %s", out)
+	}
+	if !strings.Contains(out, "let pressed = matches!(input.state, fyrox::event::ElementState::Pressed);") {
+		t.Errorf("missing pressed binding: %s", out)
+	}
+	if !strings.Contains(out, "handle_key(code, pressed);") {
+		t.Errorf("missing key handler body: %s", out)
+	}
+}
+
+func TestTranspileScriptMouseHandler(t *testing.T) {
+	s := ast.Script{
+		Name: "Input",
+		Handlers: []ast.Handler{
+			{
+				Kind: ast.HandlerMouse,
+				Params: []ast.Param{
+					{Name: "button"},
+					{Name: "pressed"},
+				},
+				Body: "handle_click(button, pressed);",
+			},
+		},
+	}
+	out := TranspileScript(s)
+	if !strings.Contains(out, "WindowEvent::MouseInput { state, button: button, .. }") {
+		t.Errorf("missing mouse input match: %s", out)
+	}
+	if !strings.Contains(out, "let pressed = matches!(*state, fyrox::event::ElementState::Pressed);") {
+		t.Errorf("missing pressed binding: %s", out)
+	}
+	if !strings.Contains(out, "handle_click(button, pressed);") {
+		t.Errorf("missing mouse handler body: %s", out)
 	}
 }
 

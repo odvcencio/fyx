@@ -33,10 +33,48 @@ type compileResult struct {
 	Diagnostics     []diag.Diagnostic
 }
 
+// compileProjectOptions controls project compilation behavior.
+type compileProjectOptions struct {
+	// ExcludeDirs is a list of directory names (relative to inputDir) to
+	// skip during file collection. Used to prevent cross-pollution of the
+	// signal index when distinct test corpora share a parent directory.
+	ExcludeDirs []string
+}
+
 func compileProject(inputDir string) (*compileResult, error) {
+	return compileProjectWithOptions(inputDir, compileProjectOptions{})
+}
+
+func compileProjectWithOptions(inputDir string, opts compileProjectOptions) (*compileResult, error) {
 	paths, err := collectFyxFiles(inputDir)
 	if err != nil {
 		return nil, err
+	}
+	if len(opts.ExcludeDirs) > 0 {
+		filtered := paths[:0]
+		for _, path := range paths {
+			rel, relErr := filepath.Rel(inputDir, path)
+			if relErr != nil {
+				filtered = append(filtered, path)
+				continue
+			}
+			rel = filepath.ToSlash(rel)
+			skip := false
+			for _, dir := range opts.ExcludeDirs {
+				dir = strings.TrimSuffix(filepath.ToSlash(dir), "/")
+				if dir == "" {
+					continue
+				}
+				if rel == dir || strings.HasPrefix(rel, dir+"/") {
+					skip = true
+					break
+				}
+			}
+			if !skip {
+				filtered = append(filtered, path)
+			}
+		}
+		paths = filtered
 	}
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no .fyx files found in %s", inputDir)

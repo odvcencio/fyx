@@ -263,7 +263,11 @@ pub mod fyrox {
     }
 
     pub mod event {
-        pub use crate::{Event, WindowEvent};
+        pub use crate::{ElementState, Event, WindowEvent};
+    }
+
+    pub mod keyboard {
+        pub use crate::{KeyCode, PhysicalKey};
     }
 
     pub mod plugin {
@@ -308,6 +312,9 @@ pub mod fyrox {
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Handle<T>(PhantomData<T>);
+impl<T> Handle<T> {
+    pub fn is_some(&self) -> bool { true }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Resource<T>(PhantomData<T>);
@@ -353,19 +360,46 @@ impl Color {
     pub const RED: Self = Self;
 }
 
-#[derive(Default, Clone, Debug)]
-pub struct KeyboardInput;
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElementState {
+    #[default]
+    Pressed,
+    Released,
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+pub enum KeyCode {
+    #[default]
+    KeyW,
+    KeyA,
+    KeyS,
+    KeyD,
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+pub enum PhysicalKey {
+    #[default]
+    Unidentified,
+    Code(KeyCode),
+}
 
 #[derive(Default, Clone, Debug)]
+pub struct KeyboardInput {
+    pub physical_key: PhysicalKey,
+    pub state: ElementState,
+}
+
+#[derive(Default, Clone, Copy, Debug)]
 pub enum MouseButton {
     #[default]
     Left,
+    Right,
 }
 
 #[derive(Clone, Debug)]
 pub enum WindowEvent {
-    KeyboardInput(KeyboardInput),
-    MouseButton(MouseButton),
+    KeyboardInput { event: KeyboardInput },
+    MouseInput { state: ElementState, button: MouseButton },
     Other,
 }
 impl Default for WindowEvent {
@@ -419,6 +453,7 @@ impl Graph {
     pub fn try_get_of_type<T>(&self, _handle: Handle<Node>) -> Result<(), ()> {
         Ok(())
     }
+    pub fn remove_node(&mut self, _handle: Handle<Node>) {}
 }
 impl Index<Handle<Node>> for Graph {
     type Output = NodeRef;
@@ -541,8 +576,12 @@ pub struct PluginContext {
     pub message_sender: MessageSender,
 }
 
-pub trait SceneGraph {}
-impl SceneGraph for Graph {}
+pub trait SceneGraph {
+    fn remove_node(&mut self, handle: Handle<Node>);
+}
+impl SceneGraph for Graph {
+    fn remove_node(&mut self, handle: Handle<Node>) { self.remove_node(handle) }
+}
 
 pub fn do_hit_check<T1, T2, T3, T4>(_a: T1, _b: T2, _c: T3, _d: T4) {}
 

@@ -404,3 +404,194 @@ owner_node.set_visibility(false);`,
 		t.Fatalf("component handle aliases should keep node method sugar inside systems: %s", out)
 	}
 }
+
+func TestTranspileFileSystemRewritesComponentNodeHandleCollections(t *testing.T) {
+	file := ast.File{
+		Scripts: []ast.Script{
+			{
+				Name: "Weapon",
+			},
+			{
+				Name: "Damageable",
+				Signals: []ast.Signal{
+					{
+						Name: "damaged",
+						Params: []ast.Param{
+							{Name: "amount", TypeExpr: "f32"},
+							{Name: "source", TypeExpr: "Handle<Node>"},
+						},
+					},
+				},
+			},
+		},
+		Components: []ast.Component{
+			{
+				Name: "PatrolPath",
+				Fields: []ast.Field{
+					{Modifier: ast.FieldBare, Name: "points", TypeExpr: "Vec<Handle<Node>>"},
+				},
+			},
+		},
+		Systems: []ast.System{
+			{
+				Name: "inspect_path",
+				Queries: []ast.Query{
+					{
+						Params: []ast.QueryParam{
+							{Name: "path", TypeExpr: "PatrolPath"},
+						},
+						Body: `let first_point = path.points[0];
+let first_pos = first_point.position();
+let next_pos = path.points[1].position();
+if let Some(weapon) = first_point.parent().script::<Weapon>() {
+    let _ = (first_pos, next_pos, weapon);
+}
+emit Damageable::damaged(amount: 1.0, source: first_point) to path.points;
+path.points.set_visibility(false);
+for point in path.points {
+    let point_parent = point.parent();
+    point.set_visibility(false);
+    let _ = point_parent;
+}`,
+					},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "let first_pos = ctx.scene.graph[first_point].global_position();") {
+		t.Fatalf("component Vec<Handle<Node>> aliases should keep position() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "let next_pos = ctx.scene.graph[path.points[1]].global_position();") {
+		t.Fatalf("component Vec<Handle<Node>> indexed entries should keep position() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "if let Some(weapon) = ctx.scene.graph[ctx.scene.graph[first_point].parent()].script::<Weapon>() {") {
+		t.Fatalf("component Vec<Handle<Node>> aliases should keep parent/script sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "for __fyx_target_0 in path.points.iter().cloned() {") {
+		t.Fatalf("component Vec<Handle<Node>> targeted emits should lower to collection broadcasts: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_sender.send_to_target(__fyx_target_0, DamageableDamagedMsg { amount: 1.0, source: first_point });") {
+		t.Fatalf("component Vec<Handle<Node>> targeted emits should target each collection handle: %s", out)
+	}
+	if !strings.Contains(out, "for __fyx_item_0 in path.points.iter().cloned() {") {
+		t.Fatalf("component Vec<Handle<Node>> bulk method calls should lower to collection loops: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[__fyx_item_0].set_visibility(false);") {
+		t.Fatalf("component Vec<Handle<Node>> bulk method calls should target each node handle: %s", out)
+	}
+	if !strings.Contains(out, "for point in path.points.iter().cloned() {") {
+		t.Fatalf("bare component Vec<Handle<Node>> loops should lower to cloned handle iteration: %s", out)
+	}
+	if !strings.Contains(out, "let point_parent = ctx.scene.graph[point].parent();") {
+		t.Fatalf("loop-bound component Vec<Handle<Node>> entries should keep parent() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[point].set_visibility(false);") {
+		t.Fatalf("loop-bound component Vec<Handle<Node>> entries should keep node method sugar inside systems: %s", out)
+	}
+}
+
+func TestTranspileFileSystemRewritesHandleChildrenLoops(t *testing.T) {
+	file := ast.File{
+		Components: []ast.Component{
+			{
+				Name: "ShotOwner",
+				Fields: []ast.Field{
+					{Modifier: ast.FieldBare, Name: "node", TypeExpr: "Handle<Node>"},
+				},
+			},
+		},
+		Systems: []ast.System{
+			{
+				Name: "inspect_owner_children",
+				Queries: []ast.Query{
+					{
+						Params: []ast.QueryParam{
+							{Name: "owner", TypeExpr: "ShotOwner"},
+						},
+						Body: `owner.node.children().set_visibility(false);
+for child in owner.node.children() {
+    let child_parent = child.parent();
+    child.set_visibility(false);
+    let _ = child_parent;
+}`,
+					},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, "for __fyx_item_0 in ctx.scene.graph[owner.node].children().to_vec().into_iter() {") {
+		t.Fatalf("component handle children() bulk method calls should lower to owned traversal loops: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[__fyx_item_0].set_visibility(false);") {
+		t.Fatalf("component handle children() bulk method calls should target each child handle: %s", out)
+	}
+	if !strings.Contains(out, "for child in ctx.scene.graph[owner.node].children().to_vec().into_iter() {") {
+		t.Fatalf("component handle children() iterators should materialize owned handles inside systems: %s", out)
+	}
+	if !strings.Contains(out, "let child_parent = ctx.scene.graph[child].parent();") {
+		t.Fatalf("loop-bound children handles should keep parent() sugar inside systems: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[child].set_visibility(false);") {
+		t.Fatalf("loop-bound children handles should keep node method sugar inside systems: %s", out)
+	}
+}
+
+func TestTranspileFileSystemRewritesRelativeSceneTraversal(t *testing.T) {
+	file := ast.File{
+		Components: []ast.Component{
+			{
+				Name: "ShotOwner",
+				Fields: []ast.Field{
+					{Modifier: ast.FieldBare, Name: "node", TypeExpr: "Handle<Node>"},
+				},
+			},
+		},
+		Systems: []ast.System{
+			{
+				Name: "inspect_owner_descendants",
+				Queries: []ast.Query{
+					{
+						Params: []ast.QueryParam{
+							{Name: "owner", TypeExpr: "ShotOwner"},
+						},
+						Body: `let trail_root = owner.node.find("TrailRoot");
+let trail_root_parent = trail_root.parent();
+owner.node.find_all("TrailRoot/*").set_visibility(false);
+for segment in owner.node.find_all("TrailRoot/*") {
+    let segment_parent = segment.parent();
+    segment.set_visibility(true);
+    let _ = (trail_root_parent, segment_parent);
+}`,
+					},
+				},
+			},
+		},
+	}
+
+	out := TranspileFile(file)
+	if !strings.Contains(out, `let trail_root = fyx_find_relative_node_path(&ctx.scene.graph, owner.node, "TrailRoot");`) {
+		t.Fatalf("component handle relative find() should lower to the generated scene helper: %s", out)
+	}
+	if !strings.Contains(out, "let trail_root_parent = ctx.scene.graph[trail_root].parent();") {
+		t.Fatalf("component handle relative find() aliases should keep handle sugar: %s", out)
+	}
+	if !strings.Contains(out, `for __fyx_item_0 in fyx_find_relative_nodes_path(&ctx.scene.graph, owner.node, "TrailRoot/*").into_iter() {`) {
+		t.Fatalf("component handle relative find_all() bulk calls should lower to collection loops: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[__fyx_item_0].set_visibility(false);") {
+		t.Fatalf("component handle relative find_all() bulk calls should target each resolved handle: %s", out)
+	}
+	if !strings.Contains(out, `for segment in fyx_find_relative_nodes_path(&ctx.scene.graph, owner.node, "TrailRoot/*").into_iter() {`) {
+		t.Fatalf("component handle relative find_all() loops should lower to iterator traversal: %s", out)
+	}
+	if !strings.Contains(out, "let segment_parent = ctx.scene.graph[segment].parent();") {
+		t.Fatalf("component handle relative find_all() loops should keep handle sugar: %s", out)
+	}
+	if !strings.Contains(out, "ctx.scene.graph[segment].set_visibility(true);") {
+		t.Fatalf("component handle relative find_all() loops should keep node methods: %s", out)
+	}
+}

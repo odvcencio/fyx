@@ -148,7 +148,7 @@ func TestTranspileConnectDispatch(t *testing.T) {
 	index := SignalIndex{
 		signalIndexKey("Enemy", "died"): []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
 	}
-	out := TranspileConnectDispatch(connects, "Tracker", nil, index)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, nil, index)
 	if !strings.Contains(out, "if let Some(msg) = message.downcast_ref::<EnemyDiedMsg>()") {
 		t.Errorf("missing if-let downcast: %s", out)
 	}
@@ -169,7 +169,7 @@ func TestTranspileConnectDispatchMultiple(t *testing.T) {
 		signalIndexKey("Enemy", "died"):            []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
 		signalIndexKey("Player", "health_changed"): []ast.Param{{Name: "health", TypeExpr: "f32"}},
 	}
-	out := TranspileConnectDispatch(connects, "Tracker", nil, index)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, nil, index)
 	if !strings.Contains(out, "downcast_ref::<EnemyDiedMsg>()") {
 		t.Errorf("missing EnemyDiedMsg dispatch: %s", out)
 	}
@@ -191,7 +191,7 @@ func TestTranspileConnectDispatchMultiple(t *testing.T) {
 }
 
 func TestTranspileConnectDispatchEmpty(t *testing.T) {
-	out := TranspileConnectDispatch(nil, "Tracker", nil, nil)
+	out := TranspileConnectDispatch(nil, "Tracker", nil, nil, nil)
 	if out != "" {
 		t.Errorf("expected empty output for no connects, got: %q", out)
 	}
@@ -212,7 +212,7 @@ func TestTranspileConnectDispatchMultipleParams(t *testing.T) {
 			{Name: "source", TypeExpr: "Handle<Node>"},
 		},
 	}
-	out := TranspileConnectDispatch(connects, "Tracker", nil, index)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, nil, index)
 	if !strings.Contains(out, "let amount = &msg.amount;") {
 		t.Errorf("missing amount binding: %s", out)
 	}
@@ -225,7 +225,7 @@ func TestTranspileConnectDispatchFallsBackToBindingNames(t *testing.T) {
 	connects := []ast.Connect{
 		{ScriptName: "Enemy", SignalName: "died", Params: []string{"pos"}, Body: "self.score += 100;"},
 	}
-	out := TranspileConnectDispatch(connects, "Tracker", nil, nil)
+	out := TranspileConnectDispatch(connects, "Tracker", nil, nil, nil)
 	if !strings.Contains(out, "let pos = &msg.pos;") {
 		t.Errorf("expected fallback bind to use local name, got: %s", out)
 	}
@@ -248,12 +248,35 @@ emit flashed(self.position());`,
 		signalIndexKey("Enemy", "died"):      []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
 		signalIndexKey("Tracker", "flashed"): []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
 	}
-	out := TranspileConnectDispatch(connects, "Tracker", fields, index)
+	out := TranspileConnectDispatch(connects, "Tracker", fields, nil, index)
 	if !strings.Contains(out, "ctx.scene.graph[self.flash].set_visibility(false);") {
 		t.Fatalf("connect body should rewrite node field access: %s", out)
 	}
 	if !strings.Contains(out, "ctx.message_sender.send_global(TrackerFlashedMsg { position: ctx.scene.graph[ctx.handle].global_position() });") {
 		t.Fatalf("connect body should rewrite emit and self.position(): %s", out)
+	}
+}
+
+func TestTranspileConnectDispatchRewritesStateTransitions(t *testing.T) {
+	connects := []ast.Connect{
+		{
+			ScriptName: "Enemy",
+			SignalName: "died",
+			Params:     []string{"pos"},
+			Body:       "go alert;",
+		},
+	}
+	states := []ast.State{
+		{Name: "idle"},
+		{Name: "alert"},
+	}
+	index := SignalIndex{
+		signalIndexKey("Enemy", "died"): []ast.Param{{Name: "position", TypeExpr: "Vector3"}},
+	}
+
+	out := TranspileConnectDispatch(connects, "Tracker", nil, states, index)
+	if !strings.Contains(out, "self._fyx_transition = Some(TrackerState::Alert);") {
+		t.Fatalf("connect bodies should be able to trigger state transitions: %s", out)
 	}
 }
 
@@ -329,6 +352,68 @@ func TestRewriteEmitQualifiedSignalWithNamedArgs(t *testing.T) {
 	out := RewriteEmitStatements(body, "ScoreTracker", index)
 	if !strings.Contains(out, "ctx.message_sender.send_to_target(target, EnemyDamagedMsg { amount: 10.0, source: ctx.handle });") {
 		t.Errorf("qualified named emit not rewritten correctly: %s", out)
+	}
+}
+
+func TestRewriteEmitBroadcastsToNodesFieldCollections(t *testing.T) {
+	index := SignalIndex{
+		signalIndexKey("Enemy", "damaged"): []ast.Param{
+			{Name: "amount", TypeExpr: "f32"},
+			{Name: "source", TypeExpr: "Handle<Node>"},
+		},
+	}
+	body := "emit Enemy::damaged(amount: 10.0, source: ctx.handle) to self.targets;"
+	out := RewriteEmitStatementsWithOptions(body, "Tracker", EmitRewriteOptions{
+		SignalIndex:    index,
+		HandleBindings: analyzeScriptHandleBindings(body, []ast.Field{{Modifier: ast.FieldNodes, Name: "targets"}}, ast.HandlerMessage),
+	})
+	if !strings.Contains(out, "for __fyx_target_0 in self.targets.iter().cloned() {") {
+		t.Fatalf("collection-targeted emit should lower to a broadcast loop: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_sender.send_to_target(__fyx_target_0, EnemyDamagedMsg { amount: 10.0, source: ctx.handle });") {
+		t.Fatalf("collection-targeted emit should target each collection handle: %s", out)
+	}
+}
+
+func TestRewriteEmitBroadcastsToChildrenCollections(t *testing.T) {
+	index := SignalIndex{
+		signalIndexKey("Enemy", "damaged"): []ast.Param{
+			{Name: "amount", TypeExpr: "f32"},
+			{Name: "source", TypeExpr: "Handle<Node>"},
+		},
+	}
+	body := `let crosshair = self.crosshair;
+emit Enemy::damaged(amount: 10.0, source: ctx.handle) to crosshair.children();`
+	out := RewriteEmitStatementsWithOptions(body, "Tracker", EmitRewriteOptions{
+		SignalIndex:    index,
+		HandleBindings: analyzeScriptHandleBindings(body, []ast.Field{{Modifier: ast.FieldNode, Name: "crosshair"}}, ast.HandlerMessage),
+	})
+	if !strings.Contains(out, "for __fyx_target_0 in crosshair.children().to_vec().into_iter() {") {
+		t.Fatalf("children()-targeted emit should materialize owned child handles: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_sender.send_to_target(__fyx_target_0, EnemyDamagedMsg { amount: 10.0, source: ctx.handle });") {
+		t.Fatalf("children()-targeted emit should target each child handle: %s", out)
+	}
+}
+
+func TestRewriteEmitBroadcastsToRelativeCollections(t *testing.T) {
+	index := SignalIndex{
+		signalIndexKey("Enemy", "damaged"): []ast.Param{
+			{Name: "amount", TypeExpr: "f32"},
+			{Name: "source", TypeExpr: "Handle<Node>"},
+		},
+	}
+	body := `let crosshair = self.crosshair;
+emit Enemy::damaged(amount: 10.0, source: ctx.handle) to crosshair.find_all("Marks/*");`
+	out := RewriteEmitStatementsWithOptions(body, "Tracker", EmitRewriteOptions{
+		SignalIndex:    index,
+		HandleBindings: analyzeScriptHandleBindings(body, []ast.Field{{Modifier: ast.FieldNode, Name: "crosshair"}}, ast.HandlerMessage),
+	})
+	if !strings.Contains(out, `for __fyx_target_0 in fyx_find_relative_nodes_path(&ctx.scene.graph, crosshair, "Marks/*").into_iter() {`) {
+		t.Fatalf("relative collection targeted emits should lower to resolved broadcast loops: %s", out)
+	}
+	if !strings.Contains(out, "ctx.message_sender.send_to_target(__fyx_target_0, EnemyDamagedMsg { amount: 10.0, source: ctx.handle });") {
+		t.Fatalf("relative collection targeted emits should target each resolved handle: %s", out)
 	}
 }
 

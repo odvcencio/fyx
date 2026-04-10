@@ -44,8 +44,13 @@ func (m SourceMap) Resolve(generatedLine int) int {
 // SignalIndex maps Script::signal identifiers to their declared parameters.
 type SignalIndex map[string][]ast.Param
 
-// ComponentHandleIndex maps component names to the field names that carry Handle<Node>.
-type ComponentHandleIndex map[string][]string
+type ComponentHandleField struct {
+	Name    string
+	Indexed bool
+}
+
+// ComponentHandleIndex maps component names to fields that carry node handles directly or via indexable collections.
+type ComponentHandleIndex map[string][]ComponentHandleField
 
 // BuildSignalIndex collects signal declarations across a set of parsed files.
 func BuildSignalIndex(files []ast.File) SignalIndex {
@@ -69,10 +74,12 @@ func BuildComponentHandleIndex(files []ast.File) ComponentHandleIndex {
 	for _, file := range files {
 		for _, component := range file.Components {
 			for _, field := range component.Fields {
-				if !isNodeHandleType(field.TypeExpr) {
-					continue
+				switch {
+				case isNodeHandleType(field.TypeExpr):
+					index[component.Name] = append(index[component.Name], ComponentHandleField{Name: field.Name})
+				case isNodeHandleCollectionType(field.TypeExpr):
+					index[component.Name] = append(index[component.Name], ComponentHandleField{Name: field.Name, Indexed: true})
 				}
-				index[component.Name] = append(index[component.Name], field.Name)
 			}
 		}
 	}
@@ -85,6 +92,10 @@ func signalIndexKey(scriptName, signalName string) string {
 
 func isNodeHandleType(typeExpr string) bool {
 	return strings.ReplaceAll(strings.TrimSpace(typeExpr), " ", "") == "Handle<Node>"
+}
+
+func isNodeHandleCollectionType(typeExpr string) bool {
+	return strings.ReplaceAll(strings.TrimSpace(typeExpr), " ", "") == "Vec<Handle<Node>>"
 }
 
 func signalParamsFor(index SignalIndex, scriptName, signalName string) []ast.Param {

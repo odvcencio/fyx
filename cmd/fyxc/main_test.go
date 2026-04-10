@@ -69,7 +69,15 @@ func TestWriteOutputTreePreservesModules(t *testing.T) {
 }
 
 func TestValidateGeneratedFilesPassesFixtureCorpus(t *testing.T) {
-	result, err := compileProject(filepath.Join("..", "..", "testdata"))
+	// Scale files share script names (Weapon, Player, HUD, Enemy) with the
+	// top-level fixtures but declare conflicting signal signatures, which
+	// poisons the shared signal index. Exclude them from project compilation
+	// so the canonical fixtures get clean codegen. Scale files are tested
+	// separately by TestScaleProject_20Files as their own project.
+	result, err := compileProjectWithOptions(
+		filepath.Join("..", "..", "testdata"),
+		compileProjectOptions{ExcludeDirs: []string{"scale"}},
+	)
 	if err != nil {
 		t.Fatalf("compileProject: %v", err)
 	}

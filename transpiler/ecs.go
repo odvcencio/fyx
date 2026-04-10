@@ -58,7 +58,7 @@ func EmitSystem(e *RustEmitter, s ast.System, opts Options) {
 		emitQueryLoop(e, q, opts)
 	}
 
-	body := strings.TrimSpace(rewriteSystemBody(s.Body, opts, nil))
+	body := strings.TrimSpace(rewriteSystemBody(s.Body, opts, handleBindingAnalysis{}))
 	if body != "" {
 		lines := strings.Split(body, "\n")
 		for i, line := range lines {
@@ -80,6 +80,10 @@ func TranspileSystemRunner(systems []ast.System) string {
 
 // EmitSystemRunner writes the ECS runner function into an emitter.
 func EmitSystemRunner(e *RustEmitter, systems []ast.System) {
+	emitSystemRunnerInternal(e, systems, false)
+}
+
+func emitSystemRunnerInternal(e *RustEmitter, systems []ast.System, includeBuiltins bool) {
 	line := 1
 	if len(systems) > 0 && systems[0].Line != 0 {
 		line = systems[0].Line
@@ -88,6 +92,9 @@ func EmitSystemRunner(e *RustEmitter, systems []ast.System) {
 	e.Indent()
 	for _, s := range systems {
 		e.LineWithSource(fmt.Sprintf("system_%s(world, ctx);", s.Name), s.Line)
+	}
+	if includeBuiltins {
+		e.LineWithSource("fyx_run_builtin_systems(world, ctx);", line)
 	}
 	e.Dedent()
 	e.LineWithSource("}", line)
@@ -158,7 +165,7 @@ func emitQueryLoop(e *RustEmitter, q ast.Query, opts Options) {
 	}
 	e.Indent()
 
-	body := strings.TrimSpace(rewriteSystemBody(q.Body, opts, queryHandleReceivers(q, opts.ComponentHandleIndex)))
+	body := strings.TrimSpace(rewriteSystemBody(q.Body, opts, queryHandleBindings(q, opts.ComponentHandleIndex)))
 	if body != "" {
 		lines := strings.Split(body, "\n")
 		for i, line := range lines {
@@ -170,26 +177,38 @@ func emitQueryLoop(e *RustEmitter, q ast.Query, opts Options) {
 	e.LineWithSource("}", q.Line)
 }
 
-func rewriteSystemBody(body string, opts Options, handleReceivers []string) string {
+func rewriteSystemBody(body string, opts Options, bindings handleBindingAnalysis) string {
 	body = systemSceneRe.ReplaceAllString(body, "${1}ctx.scene.")
-	body = RewriteEmitStatements(body, "", opts.SignalIndex)
-	body = rewriteSystemHandleSugar(body, handleReceivers)
+	body = RewriteEmitStatementsWithOptions(body, "", EmitRewriteOptions{
+		SignalIndex:    opts.SignalIndex,
+		HandleBindings: bindings,
+	})
+	body = rewriteCollectionIterators(body, bindings)
+	body = rewriteCollectionNodeCalls(body, bindings)
+	body = rewriteRelativeNodeLookups(body, bindings)
+	body = rewriteSystemHandleSugar(body, bindings.Receivers)
 	body = rewriteEcsSpawnCalls(body, "world")
 	body = graphRotateYRe.ReplaceAllString(body, `${1}.set_rotation_y(`)
 	return despawnCallRe.ReplaceAllString(body, "world.despawn(")
 }
 
-func queryHandleReceivers(q ast.Query, index ComponentHandleIndex) []string {
+func queryHandleBindings(q ast.Query, index ComponentHandleIndex) handleBindingAnalysis {
 	var initialReceivers []string
+	var initialCollections []string
 	for _, p := range q.Params {
 		if isNodeHandleType(p.TypeExpr) {
 			initialReceivers = append(initialReceivers, p.Name)
 		}
 		for _, field := range index[strings.TrimSpace(p.TypeExpr)] {
-			initialReceivers = append(initialReceivers, p.Name+"."+field)
+			if field.Indexed {
+				initialCollections = append(initialCollections, p.Name+"."+field.Name)
+				initialReceivers = append(initialReceivers, indexedHandleReceivers(q.Body, p.Name+"."+field.Name)...)
+				continue
+			}
+			initialReceivers = append(initialReceivers, p.Name+"."+field.Name)
 		}
 	}
-	return expandHandleReceivers(q.Body, initialReceivers, nil, false)
+	return analyzeHandleBindings(q.Body, initialReceivers, nil, initialCollections, false)
 }
 
 func rewriteSystemHandleSugar(body string, receivers []string) string {

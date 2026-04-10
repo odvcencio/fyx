@@ -75,6 +75,32 @@ func TestParseLifecycleHandlers(t *testing.T) {
 	}
 }
 
+func TestParseInputHandlers(t *testing.T) {
+	lang := generateLang(t)
+	parser := gotreesitter.NewParser(lang)
+
+	input := `script Player {
+    on key(code, pressed) {
+        let _ = (code, pressed);
+    }
+
+    on mouse(button, pressed) {
+        let _ = (button, pressed);
+    }
+}`
+	tree, err := parser.Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sexpr := tree.RootNode().SExpr(lang)
+	if strings.Contains(sexpr, "ERROR") {
+		t.Errorf("parse tree contains ERROR: %s", sexpr)
+	}
+	if strings.Count(sexpr, "lifecycle_handler") != 2 {
+		t.Errorf("expected 2 lifecycle_handler nodes, got: %s", sexpr)
+	}
+}
+
 func TestParseSignals(t *testing.T) {
 	lang := generateLang(t)
 	parser := gotreesitter.NewParser(lang)
@@ -114,6 +140,7 @@ func TestParseReactiveSignals(t *testing.T) {
 	parser := gotreesitter.NewParser(lang)
 
 	input := `script HUD {
+    timer fire_cooldown = 0.1
     reactive health: f32 = 100.0
     derived health_pct: f32 = self.health / 100.0
     derived is_critical: bool = self.health < 20.0
@@ -130,7 +157,50 @@ func TestParseReactiveSignals(t *testing.T) {
 	if strings.Contains(sexpr, "ERROR") {
 		t.Errorf("parse tree contains ERROR: %s", sexpr)
 	}
-	for _, expected := range []string{"reactive_field", "derived_field", "watch_block"} {
+	for _, expected := range []string{"timer_field", "reactive_field", "derived_field", "watch_block"} {
+		if !strings.Contains(sexpr, expected) {
+			t.Errorf("expected %q, got: %s", expected, sexpr)
+		}
+	}
+}
+
+func TestParseStateMachine(t *testing.T) {
+	lang := generateLang(t)
+	parser := gotreesitter.NewParser(lang)
+
+	input := `script Enemy {
+    state idle {
+        on enter {
+            play_sound("idle");
+        }
+        on update {
+            if see_player() {
+                go alert;
+            }
+        }
+    }
+
+    state alert {
+        on enter {
+            play_sound("alert");
+        }
+        on update {
+            chase_player();
+        }
+        on exit {
+            stop_sound();
+        }
+    }
+}`
+	tree, err := parser.Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sexpr := tree.RootNode().SExpr(lang)
+	if strings.Contains(sexpr, "ERROR") {
+		t.Errorf("parse tree contains ERROR: %s", sexpr)
+	}
+	for _, expected := range []string{"state_declaration", "state_handler", "state_handler_kind"} {
 		if !strings.Contains(sexpr, expected) {
 			t.Errorf("expected %q, got: %s", expected, sexpr)
 		}

@@ -50,8 +50,8 @@ func TestEndToEndFullExample(t *testing.T) {
 	if len(file.Components) != 2 {
 		t.Errorf("expected 2 components, got %d", len(file.Components))
 	}
-	if len(file.Systems) != 3 {
-		t.Errorf("expected 3 systems, got %d", len(file.Systems))
+	if len(file.Systems) != 2 {
+		t.Errorf("expected 2 systems, got %d", len(file.Systems))
 	}
 
 	// Transpile
@@ -65,11 +65,13 @@ func TestEndToEndFullExample(t *testing.T) {
 		"impl ScriptTrait for WeaponHUD",
 		"struct Damageable",
 		"impl ScriptTrait for Damageable",
+		"enum WeaponState",
 		"struct Projectile",
 		"struct Velocity",
 		"fn system_move_projectiles",
-		"fn system_expire_projectiles",
 		"fn system_projectile_hits",
+		"pub struct FyxEntityLifetime",
+		"fyx_run_builtin_systems(world, ctx);",
 		"WeaponFiredMsg",
 		"WeaponEmptiedMsg",
 		"DamageableDamagedMsg",
@@ -77,6 +79,14 @@ func TestEndToEndFullExample(t *testing.T) {
 		"send_to_target(hit.node, DamageableDamagedMsg",
 		"ctx.scene.graph[projectile].global_position()",
 		"ctx.scene.graph[owner].global_position()",
+		"self._fyx_transition = Some(WeaponState::Empty);",
+		"self._fyx_state = next_state;",
+		"self.fire_cooldown = self.fire_rate;",
+		"self._fyx_scene_lifetimes.push(FyxSceneLifetime { handle: _inst, remaining: 1.0 });",
+		`fyx_expect_node_type::<Sprite>(&ctx.scene.graph, fyx_find_node_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Ring"), "UI/Crosshair/Reticle/Ring", "Sprite")`,
+		`fyx_expect_nodes_type::<Sprite>(&ctx.scene.graph, fyx_find_nodes_path(&ctx.scene.graph, "UI/Crosshair/Reticle/Marks/*"), "UI/Crosshair/Reticle/Marks/*", "Sprite").into_iter()`,
+		"ctx.scene.graph[reticle_part].set_visibility(true);",
+		"self.ammo_digits.iter().cloned()",
 		"register_scripts",
 		"run_ecs_systems",
 		"subscribe_to",
@@ -156,7 +166,8 @@ func TestEndToEndDepthExample(t *testing.T) {
 		"ctx.message_dispatcher.subscribe_to::<TurretControllerFiredMsg>(ctx.handle);",
 		"ctx.ecs.spawn((HeatTrail { heat: self.heat, ttl: 0.5 }, ShotOwner { node: self.muzzle }))",
 		"fn on_os_event(&mut self, event: &Event<()>, ctx: &mut ScriptContext) -> GameResult {",
-		"if let Event::WindowEvent { event: WindowEvent::MouseButton(button), .. } = event {",
+		"if let Event::WindowEvent { event: WindowEvent::MouseInput { state, button: button, .. }, .. } = event {",
+		"let pressed = matches!(*state, fyrox::event::ElementState::Pressed);",
 		"ctx.scene.graph[self.pivot].set_rotation_y(self.turn_rate * 0.25);",
 		"fn on_deinit(&mut self, ctx: &mut ScriptDeinitContext) -> GameResult {",
 		"pub fn system_decay_heat_trails(world: &mut EcsWorld, ctx: &PluginContext) {",

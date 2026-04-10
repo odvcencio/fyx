@@ -22,6 +22,7 @@ type Script struct {
 	Name     string
 	Fields   []Field
 	Handlers []Handler
+	States   []State
 	Signals  []Signal
 	Connects []Connect
 	Watches  []Watch
@@ -45,13 +46,14 @@ const (
 	FieldNode
 	FieldNodes
 	FieldResource
+	FieldTimer
 	FieldReactive
 	FieldDerived
 )
 
-// Handler represents a lifecycle or event handler within a script.
+// Handler represents a lifecycle or input/message handler within a script.
 type Handler struct {
-	Kind     HandlerKind // Init, Start, Update, Deinit, Event, Message
+	Kind     HandlerKind // Init, Start, Update, Deinit, Event, Key, Mouse, Message
 	Line     int
 	BodyLine int
 	Params   []Param
@@ -67,7 +69,33 @@ const (
 	HandlerUpdate
 	HandlerDeinit
 	HandlerEvent
+	HandlerKey
+	HandlerMouse
 	HandlerMessage
+)
+
+// State represents a state-machine block within a script.
+type State struct {
+	Line     int
+	Name     string
+	Handlers []StateHandler
+}
+
+// StateHandler represents an enter/update/exit block within a state.
+type StateHandler struct {
+	Kind     StateHandlerKind
+	Line     int
+	BodyLine int
+	Body     string
+}
+
+// StateHandlerKind identifies the type of state-local handler.
+type StateHandlerKind int
+
+const (
+	StateHandlerEnter StateHandlerKind = iota
+	StateHandlerUpdate
+	StateHandlerExit
 )
 
 // Param represents a named, optionally typed parameter.

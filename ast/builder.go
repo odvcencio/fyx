@@ -107,6 +107,8 @@ func buildScript(n *gotreesitter.Node, source []byte, lang *gotreesitter.Languag
 			s.Fields = append(s.Fields, buildField(child, source, lang, FieldNodes))
 		case "resource_field":
 			s.Fields = append(s.Fields, buildField(child, source, lang, FieldResource))
+		case "timer_field":
+			s.Fields = append(s.Fields, buildTimerField(child, source, lang))
 		case "reactive_field":
 			s.Fields = append(s.Fields, buildField(child, source, lang, FieldReactive))
 		case "derived_field":
@@ -115,6 +117,8 @@ func buildScript(n *gotreesitter.Node, source []byte, lang *gotreesitter.Languag
 			s.Fields = append(s.Fields, buildField(child, source, lang, FieldBare))
 		case "lifecycle_handler":
 			s.Handlers = append(s.Handlers, buildHandler(child, source, lang))
+		case "state_declaration":
+			s.States = append(s.States, buildState(child, source, lang))
 		case "signal_declaration":
 			s.Signals = append(s.Signals, buildSignal(child, source, lang))
 		case "connect_block":
@@ -133,6 +137,19 @@ func buildField(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language
 		Line:     sourceLine(n),
 		Name:     nodeText(n.ChildByFieldName("name", lang), source),
 		TypeExpr: nodeText(n.ChildByFieldName("type", lang), source),
+	}
+	if def := n.ChildByFieldName("default", lang); def != nil {
+		f.Default = strings.TrimSpace(nodeText(def, source))
+	}
+	return f
+}
+
+func buildTimerField(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) Field {
+	f := Field{
+		Modifier: FieldTimer,
+		Line:     sourceLine(n),
+		Name:     nodeText(n.ChildByFieldName("name", lang), source),
+		TypeExpr: "f32",
 	}
 	if def := n.ChildByFieldName("default", lang); def != nil {
 		f.Default = strings.TrimSpace(nodeText(def, source))
@@ -175,6 +192,10 @@ func buildHandler(n *gotreesitter.Node, source []byte, lang *gotreesitter.Langua
 			h.Kind = HandlerDeinit
 		case "event":
 			h.Kind = HandlerEvent
+		case "key":
+			h.Kind = HandlerKey
+		case "mouse":
+			h.Kind = HandlerMouse
 		case "message":
 			h.Kind = HandlerMessage
 		}
@@ -185,6 +206,45 @@ func buildHandler(n *gotreesitter.Node, source []byte, lang *gotreesitter.Langua
 	h.Params = collectHandlerParams(n, source, lang)
 
 	// Extract body text (content between braces).
+	if bodyNode := n.ChildByFieldName("body", lang); bodyNode != nil {
+		h.BodyLine = sourceLine(bodyNode) + 1
+		h.Body = extractBodyContent(bodyNode, source)
+	}
+
+	return h
+}
+
+func buildState(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) State {
+	state := State{
+		Line: sourceLine(n),
+		Name: nodeText(n.ChildByFieldName("name", lang), source),
+	}
+	for i := 0; i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		if child.Type(lang) != "state_handler" {
+			continue
+		}
+		state.Handlers = append(state.Handlers, buildStateHandler(child, source, lang))
+	}
+	return state
+}
+
+func buildStateHandler(n *gotreesitter.Node, source []byte, lang *gotreesitter.Language) StateHandler {
+	h := StateHandler{
+		Line: sourceLine(n),
+	}
+
+	if kindNode := n.ChildByFieldName("kind", lang); kindNode != nil {
+		switch nodeText(kindNode, source) {
+		case "enter":
+			h.Kind = StateHandlerEnter
+		case "update":
+			h.Kind = StateHandlerUpdate
+		case "exit":
+			h.Kind = StateHandlerExit
+		}
+	}
+
 	if bodyNode := n.ChildByFieldName("body", lang); bodyNode != nil {
 		h.BodyLine = sourceLine(bodyNode) + 1
 		h.Body = extractBodyContent(bodyNode, source)

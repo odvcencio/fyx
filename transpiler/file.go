@@ -50,9 +50,18 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 
 	if needsGeneratedPrelude(file) {
 		emitSectionBreak()
-		needNodeHelpers := needsNodePathHelpers(file)
+		needSceneLifetime := needsSceneLifetimeSupport(file)
+		needEntityLifetime := fileNeedsEntityLifetimeSupport(file)
+		needNodeHelpers := needsNodePathHelpers(file) || needSceneLifetime
 		for _, line := range generatedPreludeLines(needNodeHelpers) {
 			e.LineWithSource(line, generatedPreludeLine(file))
+		}
+		helperLines := generatedGameplayHelperLines(needSceneLifetime, needEntityLifetime)
+		if len(helperLines) > 0 {
+			e.Blank()
+			for _, line := range helperLines {
+				e.LineWithSource(line, generatedPreludeLine(file))
+			}
 		}
 		if needNodeHelpers {
 			e.Blank()
@@ -104,13 +113,14 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 		EmitScript(e, transpileScriptFull(s, opts), opts)
 	}
 
-	if len(file.Systems) > 0 {
+	needEntityLifetime := fileNeedsEntityLifetimeSupport(file)
+	if len(file.Systems) > 0 || needEntityLifetime {
 		for _, s := range file.Systems {
 			emitSectionBreak()
 			EmitSystem(e, s, opts)
 		}
 		emitSectionBreak()
-		EmitSystemRunner(e, file.Systems)
+		emitSystemRunnerInternal(e, file.Systems, needEntityLifetime)
 	}
 
 	if len(file.Scripts) > 0 {
@@ -123,34 +133,11 @@ func EmitFile(e *RustEmitter, file ast.File, opts Options) {
 // integrating reactive shadow fields, reactive update code, signal subscriptions,
 // signal dispatch, and emit statement rewriting into the base TranspileScript output.
 func transpileScriptFull(s ast.Script, opts Options) ast.Script {
-	// Augment the script with reactive shadow fields before transpiling.
-	augmented := augmentWithReactive(s)
+	// Augment the script with hidden runtime fields before transpiling.
+	augmented := augmentWithGameplayRuntimeFields(s)
 
 	// Augment handlers with signal/reactive integration.
 	return augmentHandlers(augmented, s, opts)
-}
-
-// augmentWithReactive adds reactive shadow field declarations and default inits
-// to the script's field list so they appear in the struct and Default impl.
-func augmentWithReactive(s ast.Script) ast.Script {
-	extras := ReactiveFieldDecls(s.Fields)
-	if len(extras) == 0 {
-		return s
-	}
-
-	result := s
-	result.Fields = make([]ast.Field, len(s.Fields))
-	copy(result.Fields, s.Fields)
-
-	for _, ex := range extras {
-		result.Fields = append(result.Fields, ast.Field{
-			Modifier: ast.FieldBare,
-			Name:     ex.Name,
-			TypeExpr: ex.TypeExpr,
-		})
-	}
-
-	return result
 }
 
 // augmentHandlers integrates reactive update code, signal subscriptions,
@@ -160,6 +147,13 @@ func augmentHandlers(s ast.Script, original ast.Script, opts Options) ast.Script
 	result.Handlers = make([]ast.Handler, len(s.Handlers))
 	copy(result.Handlers, s.Handlers)
 
+	timerCode := GenerateTimerUpdateCode(original.Fields)
+	sceneLifetimeUpdateCode := GenerateSceneLifetimeUpdateCode(result.Fields)
+	sceneLifetimeDeinitCode := GenerateSceneLifetimeDeinitCode(result.Fields)
+	stateStartCode := GenerateStateStartCode(original.Name, original.States, result.Fields, opts.SignalIndex)
+	stateUpdateCode := GenerateStateUpdateCode(original.Name, original.States, result.Fields, opts.SignalIndex)
+	stateDeinitCode := GenerateStateDeinitCode(original.Name, original.States, result.Fields, opts.SignalIndex)
+
 	// Reactive update code for on_update
 	reactiveCode := GenerateReactiveUpdateCode(original.Fields, original.Watches)
 
@@ -167,23 +161,30 @@ func augmentHandlers(s ast.Script, original ast.Script, opts Options) ast.Script
 	subscriptionCode := TranspileConnectSubscriptions(original.Connects)
 
 	// Signal dispatch for on_message
-	dispatchCode := TranspileConnectDispatch(original.Connects, original.Name, original.Fields, opts.SignalIndex)
+	dispatchCode := TranspileConnectDispatch(original.Connects, original.Name, result.Fields, original.States, opts.SignalIndex)
 
 	// Rewrite emit statements in all handler bodies using the project signal index
 	for i := range result.Handlers {
-		result.Handlers[i].Body = RewriteEmitStatements(
+		result.Handlers[i].Body = RewriteEmitStatementsWithOptions(
 			result.Handlers[i].Body,
 			original.Name,
-			opts.SignalIndex,
+			EmitRewriteOptions{
+				SignalIndex:    opts.SignalIndex,
+				HandleBindings: analyzeScriptHandleBindings(result.Handlers[i].Body, original.Fields, result.Handlers[i].Kind),
+			},
 		)
 	}
 
 	// Integrate reactive code into on_update
-	if reactiveCode != "" {
+	updatePrefix := mergeBodyCode(timerCode, sceneLifetimeUpdateCode)
+	updateSuffix := reactiveCode
+	if updatePrefix != "" || updateSuffix != "" {
 		found := false
 		for i, h := range result.Handlers {
 			if h.Kind == ast.HandlerUpdate {
-				result.Handlers[i].Body = mergeBodyCode(h.Body, reactiveCode)
+				result.Handlers[i].Body = prependHandlerCode(h.Body, updatePrefix)
+				result.Handlers[i].Body = appendHandlerCode(result.Handlers[i].Body, stateUpdateCode)
+				result.Handlers[i].Body = appendHandlerCode(result.Handlers[i].Body, updateSuffix)
 				found = true
 				break
 			}
@@ -191,17 +192,23 @@ func augmentHandlers(s ast.Script, original ast.Script, opts Options) ast.Script
 		if !found {
 			result.Handlers = append(result.Handlers, ast.Handler{
 				Kind: ast.HandlerUpdate,
-				Body: reactiveCode,
+				Body: mergeBodyCode(mergeBodyCode(updatePrefix, stateUpdateCode), updateSuffix),
 			})
 		}
+	} else if stateUpdateCode != "" {
+		result.Handlers = append(result.Handlers, ast.Handler{
+			Kind: ast.HandlerUpdate,
+			Body: stateUpdateCode,
+		})
 	}
 
 	// Integrate signal subscriptions into on_start
-	if subscriptionCode != "" {
+	if subscriptionCode != "" || stateStartCode != "" {
 		found := false
 		for i, h := range result.Handlers {
 			if h.Kind == ast.HandlerStart {
 				result.Handlers[i].Body = mergeBodyCode(subscriptionCode, h.Body)
+				result.Handlers[i].Body = mergeBodyCode(result.Handlers[i].Body, stateStartCode)
 				found = true
 				break
 			}
@@ -209,7 +216,7 @@ func augmentHandlers(s ast.Script, original ast.Script, opts Options) ast.Script
 		if !found {
 			result.Handlers = append(result.Handlers, ast.Handler{
 				Kind: ast.HandlerStart,
-				Body: subscriptionCode,
+				Body: mergeBodyCode(subscriptionCode, stateStartCode),
 			})
 		}
 	}
@@ -228,6 +235,24 @@ func augmentHandlers(s ast.Script, original ast.Script, opts Options) ast.Script
 			result.Handlers = append(result.Handlers, ast.Handler{
 				Kind: ast.HandlerMessage,
 				Body: dispatchCode,
+			})
+		}
+	}
+
+	if stateDeinitCode != "" || sceneLifetimeDeinitCode != "" {
+		found := false
+		for i, h := range result.Handlers {
+			if h.Kind == ast.HandlerDeinit {
+				result.Handlers[i].Body = appendHandlerCode(h.Body, stateDeinitCode)
+				result.Handlers[i].Body = appendHandlerCode(result.Handlers[i].Body, sceneLifetimeDeinitCode)
+				found = true
+				break
+			}
+		}
+		if !found {
+			result.Handlers = append(result.Handlers, ast.Handler{
+				Kind: ast.HandlerDeinit,
+				Body: mergeBodyCode(stateDeinitCode, sceneLifetimeDeinitCode),
 			})
 		}
 	}
@@ -289,6 +314,15 @@ func needsNodePathHelpers(file ast.File) bool {
 			case ast.FieldNode, ast.FieldNodes:
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func needsSceneLifetimeSupport(file ast.File) bool {
+	for _, script := range file.Scripts {
+		if scriptUsesSceneLifetimeSupport(script) {
+			return true
 		}
 	}
 	return false
@@ -366,6 +400,64 @@ func generatedPreludeLines(includeNodeGraphImports bool) []string {
 
 func generatedNodePathHelperLines() []string {
 	return []string{
+		"fn fyx_find_relative_node_path(graph: &Graph, root: Handle<Node>, path: &str) -> Handle<Node> {",
+		"    let parts = path",
+		"        .split('/')",
+		"        .filter(|segment| !segment.is_empty())",
+		"        .collect::<Vec<_>>();",
+		"    if parts.is_empty() {",
+		"        panic!(\"Fyx relative node path is empty\");",
+		"    };",
+		"    let mut current = root;",
+		"    for segment in parts {",
+		"        match segment {",
+		"            \".\" => {}",
+		"            \"..\" => {",
+		"                current = graph",
+		"                    .try_get_node(current)",
+		"                    .map(|node| node.parent())",
+		"                    .unwrap_or_else(|_| panic!(\"Fyx relative node path not found: {}\", path));",
+		"            }",
+		"            name => {",
+		"                let current_node = graph",
+		"                    .try_get_node(current)",
+		"                    .unwrap_or_else(|_| panic!(\"Fyx relative node path not found: {}\", path));",
+		"                let Some(next) = current_node.children().iter().copied().find(|child| {",
+		"                    graph",
+		"                        .try_get_node(*child)",
+		"                        .map(|node| node.name() == name)",
+		"                        .unwrap_or(false)",
+		"                }) else {",
+		"                    panic!(\"Fyx relative node path not found: {}\", path);",
+		"                };",
+		"                current = next;",
+		"            }",
+		"        }",
+		"    }",
+		"    current",
+		"}",
+		"",
+		"fn fyx_find_relative_nodes_path(graph: &Graph, root: Handle<Node>, pattern: &str) -> Vec<Handle<Node>> {",
+		"    if pattern == \"*\" {",
+		"        return graph",
+		"            .try_get_node(root)",
+		"            .map(|node| node.children().to_vec())",
+		"            .unwrap_or_else(|_| panic!(\"Fyx relative node path not found: {}\", pattern));",
+		"    }",
+		"    if let Some(parent_path) = pattern.strip_suffix(\"/*\") {",
+		"        let parent = if parent_path.is_empty() || parent_path == \".\" {",
+		"            root",
+		"        } else {",
+		"            fyx_find_relative_node_path(graph, root, parent_path)",
+		"        };",
+		"        return graph",
+		"            .try_get_node(parent)",
+		"            .map(|node| node.children().to_vec())",
+		"            .unwrap_or_else(|_| panic!(\"Fyx relative node path not found: {}\", pattern));",
+		"    }",
+		"    vec![fyx_find_relative_node_path(graph, root, pattern)]",
+		"}",
+		"",
 		"fn fyx_find_node_path(graph: &Graph, path: &str) -> Handle<Node> {",
 		"    let parts = path",
 		"        .split('/')",

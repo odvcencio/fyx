@@ -106,7 +106,7 @@ func TranspileConnectSubscriptions(connects []ast.Connect) string {
 //	}
 //
 // Multiple connect blocks produce chained if-let blocks.
-func TranspileConnectDispatch(connects []ast.Connect, currentScript string, fields []ast.Field, signalIndex SignalIndex) string {
+func TranspileConnectDispatch(connects []ast.Connect, currentScript string, fields []ast.Field, states []ast.State, signalIndex SignalIndex) string {
 	if len(connects) == 0 {
 		return ""
 	}
@@ -130,8 +130,11 @@ func TranspileConnectDispatch(connects []ast.Connect, currentScript string, fiel
 
 		body := strings.TrimSpace(c.Body)
 		if body != "" {
-			body = RewriteBody(body, currentScript, fields, ast.HandlerMessage)
-			body = RewriteEmitStatements(body, currentScript, signalIndex)
+			body = RewriteEmitStatementsWithOptions(body, currentScript, EmitRewriteOptions{
+				SignalIndex:    signalIndex,
+				HandleBindings: analyzeScriptHandleBindings(body, fields, ast.HandlerMessage),
+			})
+			body = RewriteBodyWithStates(body, currentScript, fields, states, ast.HandlerMessage)
 		}
 		if body != "" {
 			for _, line := range strings.Split(body, "\n") {
@@ -152,6 +155,11 @@ func TranspileConnectDispatch(connects []ast.Connect, currentScript string, fiel
 // The actual argument list is extracted by balanced-paren scanning, not regex.
 var emitPrefixRe = regexp.MustCompile(`emit\s+([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)?)\(`)
 
+type EmitRewriteOptions struct {
+	SignalIndex    SignalIndex
+	HandleBindings handleBindingAnalysis
+}
+
 // RewriteEmitStatements rewrites `emit` statements in handler bodies to Rust message sends.
 //
 // Fyx:
@@ -168,8 +176,13 @@ var emitPrefixRe = regexp.MustCompile(`emit\s+([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-
 // script-qualified emits, mapping positional arguments to named fields.
 // It handles nested parentheses in arguments (e.g., self.position()).
 func RewriteEmitStatements(body string, currentScript string, signalIndex SignalIndex) string {
+	return RewriteEmitStatementsWithOptions(body, currentScript, EmitRewriteOptions{SignalIndex: signalIndex})
+}
+
+func RewriteEmitStatementsWithOptions(body string, currentScript string, opts EmitRewriteOptions) string {
 	result := body
 	searchFrom := 0
+	loopCounter := 0
 	for {
 		loc := emitPrefixRe.FindStringSubmatchIndex(result[searchFrom:])
 		if loc == nil {
@@ -180,7 +193,7 @@ func RewriteEmitStatements(body string, currentScript string, signalIndex Signal
 		end := searchFrom + loc[1]
 		signalRef := result[searchFrom+loc[2] : searchFrom+loc[3]]
 		declScript, sigName := resolveEmitSignalRef(signalRef, currentScript)
-		params := signalParamsFor(signalIndex, declScript, sigName)
+		params := signalParamsFor(opts.SignalIndex, declScript, sigName)
 		if params == nil {
 			searchFrom = end
 			continue
@@ -212,7 +225,17 @@ func RewriteEmitStatements(body string, currentScript string, signalIndex Signal
 				continue
 			}
 			target := strings.TrimSpace(afterTo[:semiIdx])
-			replacement = fmt.Sprintf("ctx.message_sender.send_to_target(%s, %s { %s });", target, msgName, fields)
+			if iterExpr, ok := collectionIteratorExpr(target, opts.HandleBindings); ok {
+				loopVar := fmt.Sprintf("__fyx_target_%d", loopCounter)
+				loopCounter++
+				replacement = strings.Join([]string{
+					fmt.Sprintf("for %s in %s {", loopVar, iterExpr),
+					fmt.Sprintf("    ctx.message_sender.send_to_target(%s, %s { %s });", loopVar, msgName, fields),
+					"}",
+				}, "\n")
+			} else {
+				replacement = fmt.Sprintf("ctx.message_sender.send_to_target(%s, %s { %s });", target, msgName, fields)
+			}
 			result = result[:start] + replacement + afterTo[semiIdx+1:]
 			searchFrom = start + len(replacement)
 		} else {

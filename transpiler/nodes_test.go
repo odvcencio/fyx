@@ -138,6 +138,21 @@ func TestGeneratedNodePathHelpers(t *testing.T) {
 	}
 
 	out := TranspileFile(file)
+	if !strings.Contains(out, "fn fyx_find_relative_node_path(graph: &Graph, root: Handle<Node>, path: &str) -> Handle<Node> {") {
+		t.Fatalf("missing relative exact-path helper: %s", out)
+	}
+	if !strings.Contains(out, `".." => {`) {
+		t.Fatalf("relative exact-path helper should support parent traversal: %s", out)
+	}
+	if !strings.Contains(out, "fn fyx_find_relative_nodes_path(graph: &Graph, root: Handle<Node>, pattern: &str) -> Vec<Handle<Node>> {") {
+		t.Fatalf("missing relative wildcard helper: %s", out)
+	}
+	if !strings.Contains(out, `if pattern == "*" {`) {
+		t.Fatalf("relative wildcard helper should support direct child collection lookup: %s", out)
+	}
+	if !strings.Contains(out, "fyx_find_relative_node_path(graph, root, parent_path)") {
+		t.Fatalf("relative wildcard helper should resolve nested relative parent paths: %s", out)
+	}
 	if !strings.Contains(out, "fn fyx_find_node_path(graph: &Graph, path: &str) -> Handle<Node> {") {
 		t.Fatalf("missing exact-path helper: %s", out)
 	}
