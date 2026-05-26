@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/fyx/ast"
+	"m31labs.dev/fyx/ast"
 )
 
 // ReactiveExtra describes a shadow field that must be added to the struct

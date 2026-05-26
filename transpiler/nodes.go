@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/odvcencio/fyx/ast"
+	"m31labs.dev/fyx/ast"
 )
 
 // hasNodeOrResourceFields returns true if any field has a Node, Nodes, or Resource modifier.

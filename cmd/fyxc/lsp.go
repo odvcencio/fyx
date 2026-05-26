@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/odvcencio/fyx/compiler/lsp"
+	"m31labs.dev/fyx/compiler/lsp"
 )
 
 func runLSP() error {

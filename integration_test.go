@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odvcencio/fyx/ast"
-	"github.com/odvcencio/fyx/grammar"
-	"github.com/odvcencio/fyx/transpiler"
+	"m31labs.dev/fyx/ast"
+	"m31labs.dev/fyx/grammar"
+	"m31labs.dev/fyx/transpiler"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammargen"
 )

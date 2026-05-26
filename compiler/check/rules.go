@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/fyx/ast"
+	"m31labs.dev/fyx/ast"
 )
 
 func (c *checkCtx) checkDuplicateFields(script ast.Script) {

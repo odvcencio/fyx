@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/odvcencio/fyx/compiler/diag"
-	"github.com/odvcencio/fyx/compiler/span"
+	"m31labs.dev/fyx/compiler/diag"
+	"m31labs.dev/fyx/compiler/span"
 )
 
 func missingFieldType(fieldName string, s span.Span) diag.Diagnostic {

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/fyx/ast"
+	"m31labs.dev/fyx/ast"
 )
 
 const sceneLifetimeFieldName = "_fyx_scene_lifetimes"

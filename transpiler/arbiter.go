@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/odvcencio/fyx/ast"
+	"m31labs.dev/fyx/ast"
 )
 
 // RenderArbiterBundle renders preserved Arbiter-oriented declarations back into

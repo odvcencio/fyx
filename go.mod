@@ -1,4 +1,4 @@
-module github.com/odvcencio/fyx
+module m31labs.dev/fyx
 
 go 1.25.1
 

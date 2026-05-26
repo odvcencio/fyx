@@ -5,10 +5,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/odvcencio/fyx/ast"
-	"github.com/odvcencio/fyx/compiler/check"
-	"github.com/odvcencio/fyx/compiler/diag"
-	"github.com/odvcencio/fyx/grammar"
+	"m31labs.dev/fyx/ast"
+	"m31labs.dev/fyx/compiler/check"
+	"m31labs.dev/fyx/compiler/diag"
+	"m31labs.dev/fyx/grammar"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammargen"
 )

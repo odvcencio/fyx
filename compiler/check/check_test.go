@@ -3,8 +3,8 @@ package check
 import (
 	"testing"
 
-	"github.com/odvcencio/fyx/ast"
-	"github.com/odvcencio/fyx/compiler/diag"
+	"m31labs.dev/fyx/ast"
+	"m31labs.dev/fyx/compiler/diag"
 )
 
 func TestCheckFile_EmptyFile_NoDiagnostics(t *testing.T) {

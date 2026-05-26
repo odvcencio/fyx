@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/odvcencio/fyx/compiler/span"
+	"m31labs.dev/fyx/compiler/span"
 )
 
 // Severity is the display level for a diagnostic.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/odvcencio/fyx/ast"
+	"m31labs.dev/fyx/ast"
 )
 
 // toPascalCase converts a snake_case or lowercase name to PascalCase.

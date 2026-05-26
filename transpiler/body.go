@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/odvcencio/fyx/ast"
+	"m31labs.dev/fyx/ast"
 )
 
 var shorthandDtRe = regexp.MustCompile(`(^|[^[:alnum:]_\.])dt\b`)

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/odvcencio/fyx/compiler/diag"
+	"m31labs.dev/fyx/compiler/diag"
 )
 
 type runOptions struct {
