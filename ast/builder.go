@@ -11,8 +11,15 @@ import (
 // produce an ast.File.
 func BuildAST(lang *gotreesitter.Language, source []byte) (*File, error) {
 	sanitized, decls := extractArbiterDecls(source)
+	// Trim trailing whitespace before parsing. gotreesitter v0.20+ produces an
+	// ERROR root node when a file ends with whitespace after a brace-terminated
+	// rule (e.g. `impl Foo { ... }\n`). Stripping here prevents that regression
+	// without affecting node text extraction: all meaningful tokens lie within
+	// the trimmed prefix, so every byte offset in the parse tree is a valid
+	// index into `sanitized`.
+	parseInput := bytes.TrimRight(sanitized, " \t\r\n")
 	parser := gotreesitter.NewParser(lang)
-	tree, err := parser.Parse(sanitized)
+	tree, err := parser.Parse(parseInput)
 	if err != nil {
 		return nil, err
 	}
